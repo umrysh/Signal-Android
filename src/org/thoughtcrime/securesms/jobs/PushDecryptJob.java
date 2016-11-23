@@ -7,6 +7,7 @@ import android.util.Log;
 import android.util.Pair;
 
 import org.thoughtcrime.securesms.ApplicationContext;
+import org.thoughtcrime.securesms.BuildConfig;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.attachments.PointerAttachment;
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
@@ -34,6 +35,7 @@ import org.thoughtcrime.securesms.mms.OutgoingExpirationUpdateMessage;
 import org.thoughtcrime.securesms.mms.OutgoingMediaMessage;
 import org.thoughtcrime.securesms.mms.OutgoingSecureMediaMessage;
 import org.thoughtcrime.securesms.notifications.MessageNotifier;
+import org.thoughtcrime.securesms.push.SignalServiceNetworkAccess;
 import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.recipients.Recipients;
 import org.thoughtcrime.securesms.service.KeyCachingService;
@@ -62,8 +64,10 @@ import org.whispersystems.libsignal.protocol.PreKeySignalMessage;
 import org.whispersystems.libsignal.state.SessionStore;
 import org.whispersystems.libsignal.state.SignalProtocolStore;
 import org.whispersystems.libsignal.util.guava.Optional;
+import org.whispersystems.signalservice.api.crypto.AttachmentCipherInputStream;
 import org.whispersystems.signalservice.api.crypto.SignalServiceCipher;
 import org.whispersystems.signalservice.api.messages.SignalServiceAttachment;
+import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
 import org.whispersystems.signalservice.api.messages.SignalServiceContent;
 import org.whispersystems.signalservice.api.messages.SignalServiceDataMessage;
 import org.whispersystems.signalservice.api.messages.SignalServiceEnvelope;
@@ -74,6 +78,8 @@ import org.whispersystems.signalservice.api.messages.calls.HangupMessage;
 import org.whispersystems.signalservice.api.messages.calls.IceUpdateMessage;
 import org.whispersystems.signalservice.api.messages.calls.OfferMessage;
 import org.whispersystems.signalservice.api.messages.calls.SignalServiceCallMessage;
+import org.whispersystems.signalservice.api.messages.multidevice.DeviceGroup;
+import org.whispersystems.signalservice.api.messages.multidevice.DeviceGroupsInputStream;
 import org.whispersystems.signalservice.api.messages.multidevice.ReadMessage;
 import org.whispersystems.signalservice.api.messages.multidevice.RequestMessage;
 import org.whispersystems.signalservice.api.messages.multidevice.SentTranscriptMessage;
@@ -81,7 +87,11 @@ import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSy
 import org.whispersystems.signalservice.api.messages.multidevice.VerifiedMessage;
 import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 import org.whispersystems.signalservice.api.util.InvalidNumberException;
+import org.whispersystems.signalservice.internal.push.PushServiceSocket;
+import org.whispersystems.signalservice.internal.util.DynamicCredentialsProvider;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -172,6 +182,7 @@ public class PushDecryptJob extends ContextJob {
         else if (syncMessage.getRequest().isPresent())  handleSynchronizeRequestMessage(masterSecret, syncMessage.getRequest().get());
         else if (syncMessage.getRead().isPresent())     handleSynchronizeReadMessage(masterSecret, syncMessage.getRead().get(), envelope.getTimestamp());
         else if (syncMessage.getVerified().isPresent()) handleSynchronizeVerifiedMessage(masterSecret, syncMessage.getVerified().get());
+        else if (syncMessage.getGroups().isPresent())  handleSynchronizeGroupsMessage(masterSecret, envelope, syncMessage.getGroups().get());
         else                                           Log.w(TAG, "Contains no known sync types...");
       } else if (content.getCallMessage().isPresent()) {
         Log.w(TAG, "Got call message...");
@@ -481,6 +492,40 @@ public class PushDecryptJob extends ContextJob {
     MessageNotifier.setLastDesktopActivityTimestamp(envelopeTimestamp);
     MessageNotifier.cancelDelayedNotifications();
     MessageNotifier.updateNotification(context, masterSecret.getMasterSecret().orNull());
+  }
+
+  private void handleSynchronizeGroupsMessage(@NonNull MasterSecretUnion masterSecret,
+                                              @NonNull SignalServiceEnvelope envelope,
+                                              @NonNull SignalServiceAttachment groups)
+  {
+    try {
+      SignalServiceAttachmentPointer pointer            = groups.asPointer();
+      File attachment                                   = downloadAttachment(pointer.getRelay().get(), pointer.getId());
+      AttachmentCipherInputStream cipherInputStream     = new AttachmentCipherInputStream(attachment, pointer.getKey(), Optional.<byte[]>absent());
+      DeviceGroupsInputStream deviceGroupsInputStream   = new DeviceGroupsInputStream(cipherInputStream);
+      DeviceGroup group                                 = deviceGroupsInputStream.read();
+      while(group != null) {
+        SignalServiceGroup signalGroup = new SignalServiceGroup(SignalServiceGroup.Type.UPDATE, group.getId(), group.getName().orNull(), group.getMembers(), group.getAvatar().orNull());
+        GroupMessageProcessor.handleGroupCreate(context,masterSecret, envelope, signalGroup, false);
+        group = deviceGroupsInputStream.read();
+      }
+    } catch(Exception e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  private File downloadAttachment(String relay, long contentLocation) throws IOException {
+    PushServiceSocket socket = new PushServiceSocket(new SignalServiceNetworkAccess(context).getConfiguration(context),
+                                                     new DynamicCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
+                                                                                    TextSecurePreferences.getPushServerPassword(context),
+                                                                                    TextSecurePreferences.getSignalingKey(context),
+                                                                                    TextSecurePreferences.getDeviceId(context)),
+                                                     BuildConfig.USER_AGENT);
+
+    File destination = File.createTempFile("group-sync", "tmp");
+    destination.deleteOnExit();
+    socket.retrieveAttachment(relay, contentLocation, destination, 2<<8, null);
+    return destination;
   }
 
   private void handleMediaMessage(@NonNull MasterSecretUnion masterSecret,

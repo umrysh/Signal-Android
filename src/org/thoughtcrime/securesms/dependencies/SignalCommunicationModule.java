@@ -11,6 +11,7 @@ import org.thoughtcrime.securesms.jobs.CleanPreKeysJob;
 import org.thoughtcrime.securesms.jobs.CreateSignedPreKeyJob;
 import org.thoughtcrime.securesms.jobs.DeliveryReceiptJob;
 import org.thoughtcrime.securesms.jobs.GcmRefreshJob;
+import org.thoughtcrime.securesms.jobs.GroupSyncRequestJob;
 import org.thoughtcrime.securesms.jobs.MultiDeviceBlockedUpdateJob;
 import org.thoughtcrime.securesms.jobs.MultiDeviceContactUpdateJob;
 import org.thoughtcrime.securesms.jobs.MultiDeviceGroupUpdateJob;
@@ -63,7 +64,10 @@ import dagger.Provides;
                                      RotateSignedPreKeyJob.class,
                                      WebRtcCallService.class,
                                      RetrieveProfileJob.class,
-                                     MultiDeviceVerifiedUpdateJob.class})
+                                     MultiDeviceVerifiedUpdateJob.class,
+                                     GroupSyncRequestJob.class,
+                                     WebRtcCallService.class})
+
 public class SignalCommunicationModule {
 
   private final Context                    context;
@@ -78,6 +82,7 @@ public class SignalCommunicationModule {
     return new SignalServiceAccountManager(networkAccess.getConfiguration(context),
                                            TextSecurePreferences.getLocalNumber(context),
                                            TextSecurePreferences.getPushServerPassword(context),
+                                           TextSecurePreferences.getDeviceId(context),
                                            BuildConfig.USER_AGENT);
   }
 
@@ -89,6 +94,7 @@ public class SignalCommunicationModule {
         return new SignalServiceMessageSender(networkAccess.getConfiguration(context),
                                               TextSecurePreferences.getLocalNumber(context),
                                               TextSecurePreferences.getPushServerPassword(context),
+                                              TextSecurePreferences.getDeviceId(context),
                                               new SignalProtocolStoreImpl(context),
                                               BuildConfig.USER_AGENT,
                                               Optional.fromNullable(MessageRetrievalService.getPipe()),
@@ -128,6 +134,11 @@ public class SignalCommunicationModule {
     @Override
     public String getSignalingKey() {
       return TextSecurePreferences.getSignalingKey(context);
+    }
+
+    @Override
+    public int getDeviceId() {
+      return TextSecurePreferences.getDeviceId(context);
     }
   }
 

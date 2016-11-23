@@ -107,6 +107,12 @@ public class IdentityKeyUtil {
     }
   }
 
+  public static void setIdentityKeys(@NonNull Context context, @NonNull IdentityKeyPair identityKeyPair)
+  {
+    save(context, IDENTITY_PUBLIC_KEY_PREF, Base64.encodeBytes(identityKeyPair.getPublicKey().serialize()));
+    save(context, IDENTITY_PRIVATE_KEY_PREF, Base64.encodeBytes(identityKeyPair.getPrivateKey().serialize()));
+  }
+
   private static boolean hasLegacyIdentityKeys(Context context) {
     return
         retrieve(context, IDENTITY_PUBLIC_KEY_CIPHERTEXT_LEGACY_PREF) != null &&

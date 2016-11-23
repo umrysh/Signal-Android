@@ -112,7 +112,7 @@ public class RegistrationActivity extends BaseActionBarActivity {
     if (getIntent().getBooleanExtra("cancel_button", false)) {
       this.skipButton.setVisibility(View.VISIBLE);
     } else {
-      this.skipButton.setVisibility(View.INVISIBLE);
+      this.skipButton.setVisibility(View.VISIBLE);
     }
   }
 
@@ -361,14 +361,9 @@ public class RegistrationActivity extends BaseActionBarActivity {
   private class CancelButtonListener implements View.OnClickListener {
     @Override
     public void onClick(View v) {
-      TextSecurePreferences.setPromptedPushRegistration(RegistrationActivity.this, true);
-      Intent nextIntent = getIntent().getParcelableExtra("next_intent");
-
-      if (nextIntent == null) {
-        nextIntent = new Intent(RegistrationActivity.this, ConversationListActivity.class);
-      }
-
-      startActivity(nextIntent);
+      final RegistrationActivity self = RegistrationActivity.this;
+      Intent intent = new Intent(self,LinkingProgressActivity.class);
+      startActivity(intent);
       finish();
     }
   }
