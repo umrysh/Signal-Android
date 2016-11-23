@@ -14,6 +14,7 @@ import org.thoughtcrime.securesms.jobs.AvatarDownloadJob;
 import org.thoughtcrime.securesms.jobs.CleanPreKeysJob;
 import org.thoughtcrime.securesms.jobs.CreateSignedPreKeyJob;
 import org.thoughtcrime.securesms.jobs.GcmRefreshJob;
+import org.thoughtcrime.securesms.jobs.GroupSyncRequestJob;
 import org.thoughtcrime.securesms.jobs.MultiDeviceBlockedUpdateJob;
 import org.thoughtcrime.securesms.jobs.MultiDeviceContactUpdateJob;
 import org.thoughtcrime.securesms.jobs.MultiDeviceGroupUpdateJob;
@@ -44,6 +45,7 @@ import org.whispersystems.signalservice.api.SignalServiceMessageReceiver;
 import org.whispersystems.signalservice.api.SignalServiceMessageSender;
 import org.whispersystems.signalservice.api.util.CredentialsProvider;
 import org.whispersystems.signalservice.api.websocket.ConnectivityListener;
+import org.whispersystems.signalservice.internal.util.DynamicCredentialsProvider;
 
 import dagger.Module;
 import dagger.Provides;
@@ -75,7 +77,9 @@ import dagger.Provides;
                                      RetrieveProfileAvatarJob.class,
                                      MultiDeviceProfileKeyUpdateJob.class,
                                      SendReadReceiptJob.class,
+									 GroupSyncRequestJob.class,
                                      MultiDeviceReadReceiptUpdateJob.class})
+
 public class SignalCommunicationModule {
 
   private static final String TAG = SignalCommunicationModule.class.getSimpleName();
@@ -96,7 +100,10 @@ public class SignalCommunicationModule {
   synchronized SignalServiceAccountManager provideSignalAccountManager() {
     if (this.accountManager == null) {
       this.accountManager = new SignalServiceAccountManager(networkAccess.getConfiguration(context),
-                                                            new DynamicCredentialsProvider(context),
+                                                            new DynamicCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
+                                                                    TextSecurePreferences.getPushServerPassword(context),
+                                                                    TextSecurePreferences.getSignalingKey(context),
+                                                                    TextSecurePreferences.getDeviceId(context)),
                                                             BuildConfig.USER_AGENT);
     }
 
@@ -107,7 +114,10 @@ public class SignalCommunicationModule {
   synchronized SignalServiceMessageSender provideSignalMessageSender() {
     if (this.messageSender == null) {
       this.messageSender = new SignalServiceMessageSender(networkAccess.getConfiguration(context),
-                                                          new DynamicCredentialsProvider(context),
+                                                          new DynamicCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
+                                                                  TextSecurePreferences.getPushServerPassword(context),
+                                                                  TextSecurePreferences.getSignalingKey(context),
+                                                                  TextSecurePreferences.getDeviceId(context)),
                                                           new SignalProtocolStoreImpl(context),
                                                           BuildConfig.USER_AGENT,
                                                           Optional.fromNullable(MessageRetrievalService.getPipe()),
@@ -123,7 +133,10 @@ public class SignalCommunicationModule {
   synchronized SignalServiceMessageReceiver provideSignalMessageReceiver() {
     if (this.messageReceiver == null) {
       this.messageReceiver = new SignalServiceMessageReceiver(networkAccess.getConfiguration(context),
-                                                              new DynamicCredentialsProvider(context),
+                                                              new DynamicCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
+                                                                      TextSecurePreferences.getPushServerPassword(context),
+                                                                      TextSecurePreferences.getSignalingKey(context),
+                                                                      TextSecurePreferences.getDeviceId(context)),
                                                               BuildConfig.USER_AGENT,
                                                               new PipeConnectivityListener());
     }
@@ -131,6 +144,7 @@ public class SignalCommunicationModule {
     return this.messageReceiver;
   }
 
+  /*
   private static class DynamicCredentialsProvider implements CredentialsProvider {
 
     private final Context context;
@@ -153,7 +167,12 @@ public class SignalCommunicationModule {
     public String getSignalingKey() {
       return TextSecurePreferences.getSignalingKey(context);
     }
-  }
+
+    @Override
+    public int getDeviceId() {
+      return TextSecurePreferences.getDeviceId(context);
+    }
+  }*/
 
   private class PipeConnectivityListener implements ConnectivityListener {
 

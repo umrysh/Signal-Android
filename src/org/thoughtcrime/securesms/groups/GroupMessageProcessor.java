@@ -33,6 +33,9 @@ import org.whispersystems.signalservice.api.messages.SignalServiceEnvelope;
 import org.whispersystems.signalservice.api.messages.SignalServiceGroup;
 import org.whispersystems.signalservice.api.messages.SignalServiceGroup.Type;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -76,7 +79,7 @@ public class GroupMessageProcessor {
     }
   }
 
-  private static @Nullable Long handleGroupCreate(@NonNull Context context,
+  public static @Nullable Long handleGroupCreate(@NonNull Context context,
                                                   @NonNull MasterSecretUnion masterSecret,
                                                   @NonNull SignalServiceEnvelope envelope,
                                                   @NonNull SignalServiceGroup group,
@@ -84,6 +87,7 @@ public class GroupMessageProcessor {
   {
     GroupDatabase        database = DatabaseFactory.getGroupDatabase(context);
     String               id       = GroupUtil.getEncodedId(group.getGroupId(), false);
+    byte[]               rawAvatar  = null;
     GroupContext.Builder builder  = createGroupContext(group);
     builder.setType(GroupContext.Type.UPDATE);
 
@@ -96,9 +100,27 @@ public class GroupMessageProcessor {
       }
     }
 
+    if (avatar != null && avatar.isStream()) {
+      InputStream       inputStream       = avatar.asStream().getInputStream();
+      byte[]            buffer            = new byte[4096];
+      ByteArrayOutputStream avatarStream  = new ByteArrayOutputStream();
+      int read;
+      try {
+        while ((read = inputStream.read(buffer)) != -1) {
+          avatarStream.write(buffer, 0, read);
+        }
+        rawAvatar = avatarStream.toByteArray();
+      } catch (IOException e) {
+        Log.d(TAG, e.getMessage());
+      }
+    }
+
     database.create(id, group.getName().orNull(), members,
                     avatar != null && avatar.isPointer() ? avatar.asPointer() : null,
                     envelope.getRelay());
+    if (rawAvatar != null) {
+      database.updateAvatar(id, rawAvatar);
+    }
 
     return storeMessage(context, masterSecret, envelope, group, builder.build(), outgoing);
   }
