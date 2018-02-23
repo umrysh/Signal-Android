@@ -286,7 +286,7 @@ public class CreateProfileActivity extends BaseActionBarActivity implements Inje
   }
 
   private void initializeProfileAvatar(boolean excludeSystem) {
-    Address ourAddress = Address.fromSerialized(TextSecurePreferences.getLocalNumber(this));
+    Address ourAddress = Address.fromSerialized(String.valueOf(TextSecurePreferences.getDeviceId(this)));
 
     if (AvatarHelper.getAvatarFile(this, ourAddress).exists() && AvatarHelper.getAvatarFile(this, ourAddress).length() > 0) {
       new AsyncTask<Void, Void, byte[]>() {

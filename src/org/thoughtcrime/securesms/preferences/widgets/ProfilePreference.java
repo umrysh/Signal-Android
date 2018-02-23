@@ -64,7 +64,7 @@ public class ProfilePreference extends Preference {
   public void refresh() {
     if (profileNumberView == null) return;
 
-    final Address localAddress = Address.fromSerialized(TextSecurePreferences.getLocalNumber(getContext()));
+    final Address localAddress = Address.fromSerialized(String.valueOf(TextSecurePreferences.getDeviceId(getContext())));
     final String  profileName  = TextSecurePreferences.getProfileName(getContext());
 
     GlideApp.with(getContext().getApplicationContext())

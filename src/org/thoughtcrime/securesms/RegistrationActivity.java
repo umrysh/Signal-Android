@@ -171,7 +171,8 @@ public class RegistrationActivity extends BaseActionBarActivity implements Verif
     this.number.addTextChangedListener(new NumberChangedListener());
     this.createButton.setOnClickListener(v -> handleRegister());
     this.callMeCountDownView.setOnClickListener(v -> handlePhoneCallRequest());
-    skipButton.setOnClickListener(v -> handleCancel());
+    //skipButton.setOnClickListener(v -> handleCancel());
+    skipButton.setOnClickListener(new CancelButtonListener());
     informationToggle.setOnClickListener(new InformationToggleListener());
 
     if (getIntent().getBooleanExtra("cancel_button", false)) {

@@ -87,7 +87,7 @@ public class LinkingService extends Service {
       /* finish link */
       String temporarySignalingKey = Util.getSecret(52);
       int registrationId = KeyHelper.generateRegistrationId(false);
-      String deviceName = "androidtest";
+      String deviceName = "MultiDevice-Android";
       SignalServiceAccountManager.NewDeviceRegistrationReturn ret = accountManager.finishNewDeviceRegistration(temporaryIdentity, temporarySignalingKey, false, true, registrationId, deviceName);
       String gcmRegistrationId = GoogleCloudMessaging.getInstance(this).register(GcmRefreshJob.REGISTRATION_ID);
       accountManager.setGcmId(Optional.of(gcmRegistrationId));
