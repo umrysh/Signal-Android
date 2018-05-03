@@ -52,7 +52,6 @@ import android.widget.Toast;
 
 import org.thoughtcrime.securesms.ConversationAdapter.HeaderViewHolder;
 import org.thoughtcrime.securesms.ConversationAdapter.ItemClickListener;
-import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.MmsSmsDatabase;
 import org.thoughtcrime.securesms.database.RecipientDatabase;
@@ -92,7 +91,6 @@ public class ConversationFragment extends Fragment
 
   private ConversationFragmentListener listener;
 
-  private MasterSecret                masterSecret;
   private Recipient                   recipient;
   private long                        threadId;
   private long                        lastSeen;
@@ -110,12 +108,11 @@ public class ConversationFragment extends Fragment
   @Override
   public void onCreate(Bundle icicle) {
     super.onCreate(icicle);
-    this.masterSecret = getArguments().getParcelable("master_secret");
-    this.locale       = (Locale) getArguments().getSerializable(PassphraseRequiredActionBarActivity.LOCALE_EXTRA);
+    this.locale = (Locale) getArguments().getSerializable(PassphraseRequiredActionBarActivity.LOCALE_EXTRA);
   }
 
   @Override
-  public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle bundle) {
+  public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle bundle) {
     final View view = inflater.inflate(R.layout.conversation_fragment, container, false);
     list                 = ViewUtil.findById(view, android.R.id.list);
     composeDivider       = ViewUtil.findById(view, R.id.compose_divider);
@@ -192,7 +189,7 @@ public class ConversationFragment extends Fragment
 
   private void initializeListAdapter() {
     if (this.recipient != null && this.threadId != -1) {
-      ConversationAdapter adapter = new ConversationAdapter(getActivity(), masterSecret, GlideApp.with(this), locale, selectionClickListener, null, this.recipient);
+      ConversationAdapter adapter = new ConversationAdapter(getActivity(), GlideApp.with(this), locale, selectionClickListener, null, this.recipient);
       list.setAdapter(adapter);
       list.addItemDecoration(new StickyHeaderDecoration(adapter, false, false));
 
@@ -204,6 +201,7 @@ public class ConversationFragment extends Fragment
   private void setCorrectMenuVisibility(Menu menu) {
     Set<MessageRecord> messageRecords = getListAdapter().getSelectedItems();
     boolean            actionMessage  = false;
+    boolean            hasText        = false;
 
     if (actionMode != null && messageRecords.size() == 0) {
       actionMode.finish();
@@ -217,6 +215,11 @@ public class ConversationFragment extends Fragment
           messageRecord.isIdentityVerified() || messageRecord.isIdentityDefault())
       {
         actionMessage = true;
+      }
+      if (messageRecord.getBody().length() > 0) {
+        hasText = true;
+      }
+      if (actionMessage && hasText) {
         break;
       }
     }
@@ -226,7 +229,6 @@ public class ConversationFragment extends Fragment
       menu.findItem(R.id.menu_context_details).setVisible(false);
       menu.findItem(R.id.menu_context_save_attachment).setVisible(false);
       menu.findItem(R.id.menu_context_resend).setVisible(false);
-      menu.findItem(R.id.menu_context_copy).setVisible(!actionMessage);
     } else {
       MessageRecord messageRecord = messageRecords.iterator().next();
 
@@ -238,8 +240,8 @@ public class ConversationFragment extends Fragment
 
       menu.findItem(R.id.menu_context_forward).setVisible(!actionMessage);
       menu.findItem(R.id.menu_context_details).setVisible(!actionMessage);
-      menu.findItem(R.id.menu_context_copy).setVisible(!actionMessage);
     }
+    menu.findItem(R.id.menu_context_copy).setVisible(!actionMessage && hasText);
   }
 
   private ConversationAdapter getListAdapter() {
@@ -289,16 +291,15 @@ public class ConversationFragment extends Fragment
 
     StringBuilder    bodyBuilder = new StringBuilder();
     ClipboardManager clipboard   = (ClipboardManager) getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
-    boolean          first       = true;
 
     for (MessageRecord messageRecord : messageList) {
       String body = messageRecord.getDisplayBody().toString();
-
-      if (body != null) {
-        if (!first) bodyBuilder.append('\n');
-        bodyBuilder.append(body);
-        first = false;
+      if (!TextUtils.isEmpty(body)) {
+        bodyBuilder.append(body).append('\n');
       }
+    }
+    if (bodyBuilder.length() > 0 && bodyBuilder.charAt(bodyBuilder.length() - 1) == '\n') {
+      bodyBuilder.deleteCharAt(bodyBuilder.length() - 1);
     }
 
     String result = bodyBuilder.toString();
@@ -352,7 +353,6 @@ public class ConversationFragment extends Fragment
 
   private void handleDisplayDetails(MessageRecord message) {
     Intent intent = new Intent(getActivity(), MessageDetailsActivity.class);
-    intent.putExtra(MessageDetailsActivity.MASTER_SECRET_EXTRA, masterSecret);
     intent.putExtra(MessageDetailsActivity.MESSAGE_ID_EXTRA, message.getId());
     intent.putExtra(MessageDetailsActivity.THREAD_ID_EXTRA, threadId);
     intent.putExtra(MessageDetailsActivity.TYPE_EXTRA, message.isMms() ? MmsSmsDatabase.MMS_TRANSPORT : MmsSmsDatabase.SMS_TRANSPORT);
@@ -380,10 +380,14 @@ public class ConversationFragment extends Fragment
     new AsyncTask<MessageRecord, Void, Void>() {
       @Override
       protected Void doInBackground(MessageRecord... messageRecords) {
-        MessageSender.resend(context, masterSecret, messageRecords[0]);
+        MessageSender.resend(context, messageRecords[0]);
         return null;
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, message);
+  }
+
+  private void handleReplyMessage(final MessageRecord message) {
+    listener.handleReplyMessage(message);
   }
 
   private void handleSaveAttachment(final MediaMmsMessageRecord message) {
@@ -391,7 +395,7 @@ public class ConversationFragment extends Fragment
       public void onClick(DialogInterface dialog, int which) {
         for (Slide slide : message.getSlideDeck().getSlides()) {
           if ((slide.hasImage() || slide.hasVideo() || slide.hasAudio() || slide.hasDocument()) && slide.getUri() != null) {
-            SaveAttachmentTask saveTask = new SaveAttachmentTask(getActivity(), masterSecret);
+            SaveAttachmentTask saveTask = new SaveAttachmentTask(getActivity());
             saveTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, new Attachment(slide.getUri(), slide.getContentType(), message.getDateReceived(), slide.getFileName().orNull()));
             return;
           }
@@ -493,6 +497,7 @@ public class ConversationFragment extends Fragment
 
   public interface ConversationFragmentListener {
     void setThreadId(long threadId);
+    void handleReplyMessage(MessageRecord messageRecord);
   }
 
   private class ConversationScrollListener extends OnScrollListener {
@@ -582,7 +587,13 @@ public class ConversationFragment extends Fragment
         ((ConversationAdapter) list.getAdapter()).toggleSelection(messageRecord);
         list.getAdapter().notifyDataSetChanged();
 
-        setCorrectMenuVisibility(actionMode.getMenu());
+        if (getListAdapter().getSelectedItems().size() == 0) {
+          actionMode.finish();
+        } else {
+          setCorrectMenuVisibility(actionMode.getMenu());
+          actionMode.setTitle(String.valueOf(getListAdapter().getSelectedItems().size()));
+        }
+
       }
     }
 
@@ -605,6 +616,8 @@ public class ConversationFragment extends Fragment
     public boolean onCreateActionMode(ActionMode mode, Menu menu) {
       MenuInflater inflater = mode.getMenuInflater();
       inflater.inflate(R.menu.conversation_context, menu);
+
+      mode.setTitle("1");
 
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
         Window window = getActivity().getWindow();
@@ -658,6 +671,10 @@ public class ConversationFragment extends Fragment
           return true;
         case R.id.menu_context_save_attachment:
           handleSaveAttachment((MediaMmsMessageRecord)getSelectedMessageRecord());
+          actionMode.finish();
+          return true;
+        case R.id.menu_context_reply:
+          handleReplyMessage(getSelectedMessageRecord());
           actionMode.finish();
           return true;
       }

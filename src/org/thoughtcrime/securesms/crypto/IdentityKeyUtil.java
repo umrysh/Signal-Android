@@ -1,7 +1,7 @@
-/** 
+/*
  * Copyright (C) 2011 Whisper Systems
  * Copyright (C) 2013 Open Whisper Systems
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -11,7 +11,7 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -22,6 +22,7 @@ import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.support.annotation.NonNull;
 
+import org.thoughtcrime.securesms.backup.BackupProtos;
 import org.thoughtcrime.securesms.util.Base64;
 import org.whispersystems.libsignal.IdentityKey;
 import org.whispersystems.libsignal.IdentityKeyPair;
@@ -31,15 +32,18 @@ import org.whispersystems.libsignal.ecc.ECKeyPair;
 import org.whispersystems.libsignal.ecc.ECPrivateKey;
 
 import java.io.IOException;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * Utility class for working with identity keys.
- * 
+ *
  * @author Moxie Marlinspike
  */
 
 public class IdentityKeyUtil {
 
+  @SuppressWarnings("unused")
   private static final String TAG = IdentityKeyUtil.class.getSimpleName();
 
   private static final String IDENTITY_PUBLIC_KEY_CIPHERTEXT_LEGACY_PREF  = "pref_identity_public_curve25519";
@@ -111,6 +115,23 @@ public class IdentityKeyUtil {
   {
     save(context, IDENTITY_PUBLIC_KEY_PREF, Base64.encodeBytes(identityKeyPair.getPublicKey().serialize()));
     save(context, IDENTITY_PRIVATE_KEY_PREF, Base64.encodeBytes(identityKeyPair.getPrivateKey().serialize()));
+  }
+
+  public static List<BackupProtos.SharedPreference> getBackupRecord(@NonNull Context context) {
+    SharedPreferences preferences = context.getSharedPreferences(MasterSecretUtil.PREFERENCES_NAME, 0);
+
+    return new LinkedList<BackupProtos.SharedPreference>() {{
+      add(BackupProtos.SharedPreference.newBuilder()
+                                       .setFile(MasterSecretUtil.PREFERENCES_NAME)
+                                       .setKey(IDENTITY_PUBLIC_KEY_PREF)
+                                       .setValue(preferences.getString(IDENTITY_PUBLIC_KEY_PREF, null))
+                                       .build());
+      add(BackupProtos.SharedPreference.newBuilder()
+                                       .setFile(MasterSecretUtil.PREFERENCES_NAME)
+                                       .setKey(IDENTITY_PRIVATE_KEY_PREF)
+                                       .setValue(preferences.getString(IDENTITY_PRIVATE_KEY_PREF, null))
+                                       .build());
+    }};
   }
 
   private static boolean hasLegacyIdentityKeys(Context context) {

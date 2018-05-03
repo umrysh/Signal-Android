@@ -17,9 +17,9 @@
 package org.thoughtcrime.securesms;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.TypedArray;
 import android.graphics.Color;
@@ -45,6 +45,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.thoughtcrime.securesms.attachments.Attachment;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.components.AlertView;
 import org.thoughtcrime.securesms.components.AudioView;
@@ -52,8 +53,8 @@ import org.thoughtcrime.securesms.components.AvatarImageView;
 import org.thoughtcrime.securesms.components.DeliveryStatusView;
 import org.thoughtcrime.securesms.components.DocumentView;
 import org.thoughtcrime.securesms.components.ExpirationTimerView;
+import org.thoughtcrime.securesms.components.QuoteView;
 import org.thoughtcrime.securesms.components.ThumbnailView;
-import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.AttachmentDatabase;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.MmsDatabase;
@@ -63,6 +64,7 @@ import org.thoughtcrime.securesms.database.documents.IdentityKeyMismatch;
 import org.thoughtcrime.securesms.database.model.MediaMmsMessageRecord;
 import org.thoughtcrime.securesms.database.model.MessageRecord;
 import org.thoughtcrime.securesms.database.model.MmsMessageRecord;
+import org.thoughtcrime.securesms.database.model.Quote;
 import org.thoughtcrime.securesms.jobs.AttachmentDownloadJob;
 import org.thoughtcrime.securesms.jobs.MmsDownloadJob;
 import org.thoughtcrime.securesms.jobs.MmsSendJob;
@@ -105,13 +107,13 @@ public class ConversationItem extends LinearLayout
   private final static String TAG = ConversationItem.class.getSimpleName();
 
   private MessageRecord messageRecord;
-  private MasterSecret  masterSecret;
   private Locale        locale;
   private boolean       groupThread;
   private Recipient     recipient;
   private GlideRequests glideRequests;
 
   protected View             bodyBubble;
+  private QuoteView          quoteView;
   private TextView           bodyText;
   private TextView           dateText;
   private TextView           simInfoText;
@@ -174,6 +176,7 @@ public class ConversationItem extends LinearLayout
     this.documentViewStub        = new Stub<>(findViewById(R.id.document_view_stub));
     this.expirationTimer         =            findViewById(R.id.expiration_indicator);
     this.groupSenderHolder       =            findViewById(R.id.group_sender_holder);
+    this.quoteView               =            findViewById(R.id.quote_view);
 
     setOnClickListener(new ClickListener(null));
 
@@ -184,14 +187,12 @@ public class ConversationItem extends LinearLayout
   }
 
   @Override
-  public void bind(@NonNull MasterSecret       masterSecret,
-                   @NonNull MessageRecord      messageRecord,
+  public void bind(@NonNull MessageRecord      messageRecord,
                    @NonNull GlideRequests      glideRequests,
                    @NonNull Locale             locale,
                    @NonNull Set<MessageRecord> batchSelected,
                    @NonNull Recipient          conversationRecipient)
   {
-    this.masterSecret           = masterSecret;
     this.messageRecord          = messageRecord;
     this.locale                 = locale;
     this.glideRequests          = glideRequests;
@@ -213,6 +214,7 @@ public class ConversationItem extends LinearLayout
     setMinimumWidth();
     setSimInfo(messageRecord);
     setExpiration(messageRecord);
+    setQuote(messageRecord);
   }
 
   @Override
@@ -366,7 +368,7 @@ public class ConversationItem extends LinearLayout
       if (documentViewStub.resolved())   documentViewStub.get().setVisibility(View.GONE);
 
       //noinspection ConstantConditions
-      audioViewStub.get().setAudio(masterSecret, ((MediaMmsMessageRecord) messageRecord).getSlideDeck().getAudioSlide(), showControls);
+      audioViewStub.get().setAudio(((MediaMmsMessageRecord) messageRecord).getSlideDeck().getAudioSlide(), showControls);
       audioViewStub.get().setDownloadClickListener(downloadClickListener);
       audioViewStub.get().setOnLongClickListener(passthroughClickListener);
 
@@ -389,9 +391,14 @@ public class ConversationItem extends LinearLayout
       if (documentViewStub.resolved()) documentViewStub.get().setVisibility(View.GONE);
 
       //noinspection ConstantConditions
-      mediaThumbnailStub.get().setImageResource(masterSecret, glideRequests,
-                                                ((MmsMessageRecord)messageRecord).getSlideDeck().getThumbnailSlide(),
-                                                showControls, false);
+      Slide      thumbnailSlide = ((MmsMessageRecord) messageRecord).getSlideDeck().getThumbnailSlide();
+      Attachment attachment     = thumbnailSlide.asAttachment();
+      mediaThumbnailStub.get().setImageResource(glideRequests,
+                                                thumbnailSlide,
+                                                showControls,
+                                                false,
+                                                attachment.getWidth(),
+                                                attachment.getHeight());
       mediaThumbnailStub.get().setThumbnailClickListener(new ThumbnailClickListener());
       mediaThumbnailStub.get().setDownloadClickListener(downloadClickListener);
       mediaThumbnailStub.get().setOnLongClickListener(passthroughClickListener);
@@ -473,6 +480,7 @@ public class ConversationItem extends LinearLayout
     }
   }
 
+  @SuppressLint("StaticFieldLeak")
   private void setExpiration(final MessageRecord messageRecord) {
     if (messageRecord.getExpiresIn() > 0) {
       this.expirationTimer.setVisibility(View.VISIBLE);
@@ -500,6 +508,17 @@ public class ConversationItem extends LinearLayout
       }
     } else {
       this.expirationTimer.setVisibility(View.GONE);
+    }
+  }
+
+  private void setQuote(@NonNull MessageRecord messageRecord) {
+    if (messageRecord.isMms() && !messageRecord.isMmsNotification() && ((MediaMmsMessageRecord)messageRecord).getQuote() != null) {
+      Quote quote = ((MediaMmsMessageRecord)messageRecord).getQuote();
+      assert quote != null;
+      quoteView.setQuote(glideRequests, quote.getId(), Recipient.from(context, quote.getAuthor(), true), quote.getText(), quote.getAttachment());
+      quoteView.setVisibility(View.VISIBLE);
+    } else {
+      quoteView.dismiss();
     }
   }
 
@@ -537,6 +556,7 @@ public class ConversationItem extends LinearLayout
             messageRecord.isBundleKeyExchange());
   }
 
+  @SuppressLint("SetTextI18n")
   private void setGroupMessageStatus(MessageRecord messageRecord, Recipient recipient) {
     if (groupThread && !messageRecord.isOutgoing()) {
       this.groupSender.setText(recipient.toShortString());
@@ -564,7 +584,7 @@ public class ConversationItem extends LinearLayout
       throw new AssertionError("Identity mismatch count: " + mismatches.size());
     }
 
-    new ConfirmIdentityDialog(context, masterSecret, messageRecord, mismatches.get(0)).show();
+    new ConfirmIdentityDialog(context, messageRecord, mismatches.get(0)).show();
   }
 
   @Override
@@ -651,7 +671,7 @@ public class ConversationItem extends LinearLayout
   private class ClickListener implements View.OnClickListener {
     private OnClickListener parent;
 
-    public ClickListener(@Nullable OnClickListener parent) {
+    ClickListener(@Nullable OnClickListener parent) {
       this.parent = parent;
     }
 
@@ -660,7 +680,6 @@ public class ConversationItem extends LinearLayout
         parent.onClick(v);
       } else if (messageRecord.isFailed()) {
         Intent intent = new Intent(context, MessageDetailsActivity.class);
-        intent.putExtra(MessageDetailsActivity.MASTER_SECRET_EXTRA, masterSecret);
         intent.putExtra(MessageDetailsActivity.MESSAGE_ID_EXTRA, messageRecord.getId());
         intent.putExtra(MessageDetailsActivity.THREAD_ID_EXTRA, messageRecord.getThreadId());
         intent.putExtra(MessageDetailsActivity.TYPE_EXTRA, messageRecord.isMms() ? MmsSmsDatabase.MMS_TRANSPORT : MmsSmsDatabase.SMS_TRANSPORT);
@@ -689,40 +708,34 @@ public class ConversationItem extends LinearLayout
 
     if (message > -1) builder.setMessage(message);
 
-    builder.setPositiveButton(R.string.yes, new DialogInterface.OnClickListener() {
-      @Override
-      public void onClick(DialogInterface dialogInterface, int i) {
-        if (messageRecord.isMms()) {
-          MmsDatabase database = DatabaseFactory.getMmsDatabase(context);
-          database.markAsInsecure(messageRecord.getId());
-          database.markAsOutbox(messageRecord.getId());
-          database.markAsForcedSms(messageRecord.getId());
+    builder.setPositiveButton(R.string.yes, (dialogInterface, i) -> {
+      if (messageRecord.isMms()) {
+        MmsDatabase database = DatabaseFactory.getMmsDatabase(context);
+        database.markAsInsecure(messageRecord.getId());
+        database.markAsOutbox(messageRecord.getId());
+        database.markAsForcedSms(messageRecord.getId());
 
-          ApplicationContext.getInstance(context)
-                            .getJobManager()
-                            .add(new MmsSendJob(context, messageRecord.getId()));
-        } else {
-          SmsDatabase database = DatabaseFactory.getSmsDatabase(context);
-          database.markAsInsecure(messageRecord.getId());
-          database.markAsOutbox(messageRecord.getId());
-          database.markAsForcedSms(messageRecord.getId());
+        ApplicationContext.getInstance(context)
+                          .getJobManager()
+                          .add(new MmsSendJob(context, messageRecord.getId()));
+      } else {
+        SmsDatabase database = DatabaseFactory.getSmsDatabase(context);
+        database.markAsInsecure(messageRecord.getId());
+        database.markAsOutbox(messageRecord.getId());
+        database.markAsForcedSms(messageRecord.getId());
 
-          ApplicationContext.getInstance(context)
-                            .getJobManager()
-                            .add(new SmsSendJob(context, messageRecord.getId(),
-                                                messageRecord.getIndividualRecipient().getAddress().serialize()));
-        }
+        ApplicationContext.getInstance(context)
+                          .getJobManager()
+                          .add(new SmsSendJob(context, messageRecord.getId(),
+                                              messageRecord.getIndividualRecipient().getAddress().serialize()));
       }
     });
 
-    builder.setNegativeButton(R.string.no, new DialogInterface.OnClickListener() {
-      @Override
-      public void onClick(DialogInterface dialogInterface, int i) {
-        if (messageRecord.isMms()) {
-          DatabaseFactory.getMmsDatabase(context).markAsSentFailed(messageRecord.getId());
-        } else {
-          DatabaseFactory.getSmsDatabase(context).markAsSentFailed(messageRecord.getId());
-        }
+    builder.setNegativeButton(R.string.no, (dialogInterface, i) -> {
+      if (messageRecord.isMms()) {
+        DatabaseFactory.getMmsDatabase(context).markAsSentFailed(messageRecord.getId());
+      } else {
+        DatabaseFactory.getSmsDatabase(context).markAsSentFailed(messageRecord.getId());
       }
     });
     builder.show();
