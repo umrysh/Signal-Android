@@ -12,28 +12,10 @@ import org.thoughtcrime.securesms.database.NoExternalStorageException;
 
 import java.io.File;
 
-public class StorageUtil
-{
+public class StorageUtil {
 
-  public static File getBackupDirectory(Context context) throws NoExternalStorageException {
-    File storage = null;
-
-    if (Build.VERSION.SDK_INT >= 19) {
-      File[] directories = context.getExternalFilesDirs(null);
-
-      if (directories != null) {
-        storage = Stream.of(directories)
-                        .withoutNulls()
-                        .filterNot(f -> f.getAbsolutePath().contains("emulated"))
-                        .limit(1)
-                        .findSingle()
-                        .orElse(null);
-      }
-    }
-
-    if (storage == null) {
-      storage = Environment.getExternalStorageDirectory();
-    }
+  public static File getBackupDirectory() throws NoExternalStorageException {
+    File storage = Environment.getExternalStorageDirectory();
 
     if (!storage.canWrite()) {
       throw new NoExternalStorageException();
@@ -48,8 +30,11 @@ public class StorageUtil
       }
     }
 
-
     return backups;
+  }
+
+  public static File getBackupCacheDirectory(Context context) {
+    return context.getExternalCacheDir();
   }
 
   private static File getSignalStorageDir() throws NoExternalStorageException {

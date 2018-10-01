@@ -25,9 +25,11 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.widget.Toolbar;
+import android.support.v7.widget.TooltipCompat;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.Toast;
 
@@ -40,6 +42,7 @@ import org.thoughtcrime.securesms.notifications.MarkReadReceiver;
 import org.thoughtcrime.securesms.notifications.MessageNotifier;
 import org.thoughtcrime.securesms.permissions.Permissions;
 import org.thoughtcrime.securesms.recipients.Recipient;
+import org.thoughtcrime.securesms.search.SearchFragment;
 import org.thoughtcrime.securesms.service.KeyCachingService;
 import org.thoughtcrime.securesms.util.DynamicLanguage;
 import org.thoughtcrime.securesms.util.DynamicNoActionBarTheme;
@@ -57,9 +60,11 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
   private final DynamicTheme    dynamicTheme    = new DynamicNoActionBarTheme();
   private final DynamicLanguage dynamicLanguage = new DynamicLanguage();
 
-  private ConversationListFragment fragment;
+  private ConversationListFragment conversationListFragment;
+  private SearchFragment           searchFragment;
   private SearchToolbar            searchToolbar;
   private ImageView                searchAction;
+  private ViewGroup                fragmentContainer;
 
   @Override
   protected void onPreCreate() {
@@ -74,14 +79,17 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
     Toolbar toolbar = findViewById(R.id.toolbar);
     setSupportActionBar(toolbar);
 
-    searchToolbar = findViewById(R.id.search_toolbar);
-    searchAction  = findViewById(R.id.search_action);
-    fragment      = initFragment(R.id.fragment_container, new ConversationListFragment(), dynamicLanguage.getCurrentLocale());
+    searchToolbar            = findViewById(R.id.search_toolbar);
+    searchAction             = findViewById(R.id.search_action);
+    fragmentContainer        = findViewById(R.id.fragment_container);
+    conversationListFragment = initFragment(R.id.fragment_container, new ConversationListFragment(), dynamicLanguage.getCurrentLocale());
 
     initializeSearchListener();
 
     RatingManager.showRatingDialogIfNecessary(this);
     RegistrationLockDialog.showReminderIfNecessary(this);
+
+    TooltipCompat.setTooltipText(searchAction, getText(R.string.SearchToolbar_search_for_conversations_contacts_and_messages));
   }
 
   @Override
@@ -123,15 +131,31 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
     searchToolbar.setListener(new SearchToolbar.SearchListener() {
       @Override
       public void onSearchTextChange(String text) {
-        if (fragment != null) {
-          fragment.setQueryFilter(text);
+        String trimmed = text.trim();
+
+        if (trimmed.length() > 0) {
+          if (searchFragment == null) {
+            searchFragment = SearchFragment.newInstance(dynamicLanguage.getCurrentLocale());
+            getSupportFragmentManager().beginTransaction()
+                                       .add(R.id.fragment_container, searchFragment, null)
+                                       .commit();
+          }
+          searchFragment.updateSearchQuery(trimmed);
+        } else if (searchFragment != null) {
+          getSupportFragmentManager().beginTransaction()
+                                     .remove(searchFragment)
+                                     .commit();
+          searchFragment = null;
         }
       }
 
       @Override
-      public void onSearchReset() {
-        if (fragment != null) {
-          fragment.resetQueryFilter();
+      public void onSearchClosed() {
+        if (searchFragment != null) {
+          getSupportFragmentManager().beginTransaction()
+                                     .remove(searchFragment)
+                                     .commit();
+          searchFragment = null;
         }
       }
     });
@@ -146,7 +170,6 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
     case R.id.menu_settings:          handleDisplaySettings(); return true;
     case R.id.menu_clear_passphrase:  handleClearPassphrase(); return true;
     case R.id.menu_mark_all_read:     handleMarkAllRead();     return true;
-    case R.id.menu_import_export:     handleImportExport();    return true;
     case R.id.menu_invite:            handleInvite();          return true;
     case R.id.menu_help:              handleHelp();            return true;
     }
@@ -156,12 +179,19 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
 
   @Override
   public void onCreateConversation(long threadId, Recipient recipient, int distributionType, long lastSeen) {
+    openConversation(threadId, recipient, distributionType, lastSeen, -1);
+  }
+
+  public void openConversation(long threadId, Recipient recipient, int distributionType, long lastSeen, int startingPosition) {
+    searchToolbar.clearFocus();
+
     Intent intent = new Intent(this, ConversationActivity.class);
     intent.putExtra(ConversationActivity.ADDRESS_EXTRA, recipient.getAddress());
     intent.putExtra(ConversationActivity.THREAD_ID_EXTRA, threadId);
     intent.putExtra(ConversationActivity.DISTRIBUTION_TYPE_EXTRA, distributionType);
     intent.putExtra(ConversationActivity.TIMING_EXTRA, System.currentTimeMillis());
     intent.putExtra(ConversationActivity.LAST_SEEN_EXTRA, lastSeen);
+    intent.putExtra(ConversationActivity.STARTING_POSITION_EXTRA, startingPosition);
 
     startActivity(intent);
     overridePendingTransition(R.anim.slide_from_right, R.anim.fade_scale_out);
@@ -193,10 +223,6 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
     Intent intent = new Intent(this, KeyCachingService.class);
     intent.setAction(KeyCachingService.CLEAR_KEY_ACTION);
     startService(intent);
-  }
-
-  private void handleImportExport() {
-    startActivity(new Intent(this, ImportExportActivity.class));
   }
 
   @SuppressLint("StaticFieldLeak")

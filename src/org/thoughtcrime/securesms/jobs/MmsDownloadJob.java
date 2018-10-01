@@ -3,7 +3,7 @@ package org.thoughtcrime.securesms.jobs;
 import android.content.Context;
 import android.net.Uri;
 import android.support.annotation.Nullable;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 
 import com.google.android.mms.pdu_alt.CharacterSets;
 import com.google.android.mms.pdu_alt.EncodedStringValue;
@@ -19,6 +19,8 @@ import org.thoughtcrime.securesms.database.AttachmentDatabase;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.MessagingDatabase.InsertResult;
 import org.thoughtcrime.securesms.database.MmsDatabase;
+import org.thoughtcrime.securesms.jobmanager.JobParameters;
+import org.thoughtcrime.securesms.jobmanager.requirements.NetworkRequirement;
 import org.thoughtcrime.securesms.jobs.requirements.MasterSecretRequirement;
 import org.thoughtcrime.securesms.mms.ApnUnavailableException;
 import org.thoughtcrime.securesms.mms.CompatMmsConnection;
@@ -31,8 +33,6 @@ import org.thoughtcrime.securesms.providers.SingleUseBlobProvider;
 import org.thoughtcrime.securesms.service.KeyCachingService;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.jobqueue.JobParameters;
-import org.whispersystems.jobqueue.requirements.NetworkRequirement;
 import org.whispersystems.libsignal.DuplicateMessageException;
 import org.whispersystems.libsignal.InvalidMessageException;
 import org.whispersystems.libsignal.LegacyMessageException;
@@ -113,7 +113,7 @@ public class MmsDownloadJob extends MasterSecretJob {
         Log.w(TAG, e);
       }
 
-      Log.w(TAG, "Downloading mms at " + Uri.parse(contentLocation).getHost() + ", subscription ID: " + notification.get().getSubscriptionId());
+      Log.i(TAG, "Downloading mms at " + Uri.parse(contentLocation).getHost() + ", subscription ID: " + notification.get().getSubscriptionId());
 
       RetrieveConf retrieveConf = new CompatMmsConnection(context).retrieve(contentLocation, transactionId, notification.get().getSubscriptionId());
 

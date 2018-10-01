@@ -3,16 +3,19 @@ package org.thoughtcrime.securesms.jobs;
 import android.content.Context;
 import android.support.annotation.VisibleForTesting;
 import android.text.TextUtils;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 
 import org.greenrobot.eventbus.EventBus;
 import org.thoughtcrime.securesms.attachments.Attachment;
 import org.thoughtcrime.securesms.attachments.AttachmentId;
+import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.AttachmentDatabase;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.dependencies.InjectableType;
 import org.thoughtcrime.securesms.events.PartProgressEvent;
+import org.thoughtcrime.securesms.jobmanager.JobParameters;
+import org.thoughtcrime.securesms.jobmanager.requirements.NetworkRequirement;
 import org.thoughtcrime.securesms.jobs.requirements.MasterSecretRequirement;
 import org.thoughtcrime.securesms.mms.MmsException;
 import org.thoughtcrime.securesms.notifications.MessageNotifier;
@@ -20,8 +23,6 @@ import org.thoughtcrime.securesms.util.AttachmentUtil;
 import org.thoughtcrime.securesms.util.Base64;
 import org.thoughtcrime.securesms.util.Hex;
 import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.jobqueue.JobParameters;
-import org.whispersystems.jobqueue.requirements.NetworkRequirement;
 import org.whispersystems.libsignal.InvalidMessageException;
 import org.whispersystems.libsignal.util.guava.Optional;
 import org.whispersystems.signalservice.api.SignalServiceMessageReceiver;
@@ -63,13 +64,16 @@ public class AttachmentDownloadJob extends MasterSecretJob implements Injectable
 
   @Override
   public void onAdded() {
+    Log.i(TAG, "onAdded() messageId: " + messageId + "  partRowId: " + partRowId + "  partUniqueId: " + partUniqueId + "  manual: " + manual);
   }
 
   @Override
   public void onRun(MasterSecret masterSecret) throws IOException {
+    Log.i(TAG, "onRun() messageId: " + messageId + "  partRowId: " + partRowId + "  partUniqueId: " + partUniqueId + "  manual: " + manual);
+
     final AttachmentDatabase database     = DatabaseFactory.getAttachmentDatabase(context);
     final AttachmentId       attachmentId = new AttachmentId(partRowId, partUniqueId);
-    final Attachment         attachment   = database.getAttachment(attachmentId);
+    final DatabaseAttachment attachment   = database.getAttachment(attachmentId);
 
     if (attachment == null) {
       Log.w(TAG, "attachment no longer exists.");
@@ -86,7 +90,7 @@ public class AttachmentDownloadJob extends MasterSecretJob implements Injectable
       return;
     }
 
-    Log.w(TAG, "Downloading push part " + attachmentId);
+    Log.i(TAG, "Downloading push part " + attachmentId);
     database.setTransferState(messageId, attachmentId, AttachmentDatabase.TRANSFER_PROGRESS_STARTED);
 
     retrieveAttachment(messageId, attachmentId, attachment);
@@ -95,6 +99,8 @@ public class AttachmentDownloadJob extends MasterSecretJob implements Injectable
 
   @Override
   public void onCanceled() {
+    Log.w(TAG, "onCanceled() messageId: " + messageId + "  partRowId: " + partRowId + "  partUniqueId: " + partUniqueId + "  manual: " + manual);
+
     final AttachmentId attachmentId = new AttachmentId(partRowId, partUniqueId);
     markFailed(messageId, attachmentId);
   }
@@ -121,7 +127,7 @@ public class AttachmentDownloadJob extends MasterSecretJob implements Injectable
 
       database.insertAttachmentsForPlaceholder(messageId, attachmentId, stream);
     } catch (InvalidPartException | NonSuccessfulResponseCodeException | InvalidMessageException | MmsException e) {
-      Log.w(TAG, e);
+      Log.w(TAG, "Experienced exception while trying to download an attachment.", e);
       markFailed(messageId, attachmentId);
     } finally {
       if (attachmentFile != null) {
@@ -153,9 +159,9 @@ public class AttachmentDownloadJob extends MasterSecretJob implements Injectable
       }
 
       if (attachment.getDigest() != null) {
-        Log.w(TAG, "Downloading attachment with digest: " + Hex.toString(attachment.getDigest()));
+        Log.i(TAG, "Downloading attachment with digest: " + Hex.toString(attachment.getDigest()));
       } else {
-        Log.w(TAG, "Downloading attachment with no digest...");
+        Log.i(TAG, "Downloading attachment with no digest...");
       }
 
       return new SignalServiceAttachmentPointer(id, null, key, relay,

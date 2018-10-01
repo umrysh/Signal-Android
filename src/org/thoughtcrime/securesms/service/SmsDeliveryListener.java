@@ -4,12 +4,12 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.telephony.SmsMessage;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 
 import org.thoughtcrime.securesms.ApplicationContext;
 import org.thoughtcrime.securesms.database.SmsDatabase;
+import org.thoughtcrime.securesms.jobmanager.JobManager;
 import org.thoughtcrime.securesms.jobs.SmsSentJob;
-import org.whispersystems.jobqueue.JobManager;
 
 public class SmsDeliveryListener extends BroadcastReceiver {
 
@@ -46,7 +46,7 @@ public class SmsDeliveryListener extends BroadcastReceiver {
 
         int status = message.getStatus();
 
-        Log.w(TAG, "Original status: " + status);
+        Log.i(TAG, "Original status: " + status);
 
         // Note: https://developer.android.com/reference/android/telephony/SmsMessage.html#getStatus()
         //       " CDMA: For not interfering with status codes from GSM, the value is shifted to the bits 31-16"

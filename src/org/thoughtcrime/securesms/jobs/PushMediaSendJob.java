@@ -1,7 +1,7 @@
 package org.thoughtcrime.securesms.jobs;
 
 import android.content.Context;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 
 import org.thoughtcrime.securesms.ApplicationContext;
 import org.thoughtcrime.securesms.attachments.Attachment;
@@ -10,7 +10,6 @@ import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.MmsDatabase;
 import org.thoughtcrime.securesms.database.NoSuchMessageException;
 import org.thoughtcrime.securesms.dependencies.InjectableType;
-import org.thoughtcrime.securesms.mms.DecryptableStreamUriLoader;
 import org.thoughtcrime.securesms.mms.MediaConstraints;
 import org.thoughtcrime.securesms.mms.MmsException;
 import org.thoughtcrime.securesms.mms.OutgoingMediaMessage;
@@ -18,19 +17,15 @@ import org.thoughtcrime.securesms.service.ExpiringMessageManager;
 import org.thoughtcrime.securesms.transport.InsecureFallbackApprovalException;
 import org.thoughtcrime.securesms.transport.RetryLaterException;
 import org.thoughtcrime.securesms.transport.UndeliverableMessageException;
-import org.thoughtcrime.securesms.util.BitmapDecodingException;
-import org.thoughtcrime.securesms.util.BitmapUtil;
-import org.thoughtcrime.securesms.util.MediaUtil;
 import org.whispersystems.libsignal.util.guava.Optional;
 import org.whispersystems.signalservice.api.SignalServiceMessageSender;
 import org.whispersystems.signalservice.api.crypto.UntrustedIdentityException;
 import org.whispersystems.signalservice.api.messages.SignalServiceAttachment;
-import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
 import org.whispersystems.signalservice.api.messages.SignalServiceDataMessage;
+import org.whispersystems.signalservice.api.messages.shared.SharedContact;
 import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 import org.whispersystems.signalservice.api.push.exceptions.UnregisteredUserException;
 
-import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
@@ -54,7 +49,7 @@ public class PushMediaSendJob extends PushSendJob implements InjectableType {
 
   @Override
   public void onAdded() {
-
+    Log.i(TAG, "onAdded() messageId: " + messageId);
   }
 
   @Override
@@ -67,6 +62,8 @@ public class PushMediaSendJob extends PushSendJob implements InjectableType {
     OutgoingMediaMessage   message           = database.getOutgoingMessage(messageId);
 
     try {
+      Log.i(TAG, "Sending message: " + messageId);
+
       deliver(message);
       database.markAsSent(messageId, true);
       markAttachmentsUploaded(messageId, message.getAttachments());
@@ -75,6 +72,8 @@ public class PushMediaSendJob extends PushSendJob implements InjectableType {
         database.markExpireStarted(messageId);
         expirationManager.scheduleDeletion(messageId, true, message.getExpiresIn());
       }
+
+      Log.i(TAG, "Sent message: " + messageId);
 
     } catch (InsecureFallbackApprovalException ifae) {
       Log.w(TAG, ifae);
@@ -117,6 +116,7 @@ public class PushMediaSendJob extends PushSendJob implements InjectableType {
       List<SignalServiceAttachment>            attachmentStreams = getAttachmentsFor(scaledAttachments);
       Optional<byte[]>                         profileKey        = getProfileKey(message.getRecipient());
       Optional<SignalServiceDataMessage.Quote> quote             = getQuoteFor(message);
+      List<SharedContact>                      sharedContacts    = getSharedContactsFor(message);
       SignalServiceDataMessage                 mediaMessage      = SignalServiceDataMessage.newBuilder()
                                                                                            .withBody(message.getBody())
                                                                                            .withAttachments(attachmentStreams)
@@ -124,6 +124,7 @@ public class PushMediaSendJob extends PushSendJob implements InjectableType {
                                                                                            .withExpiration((int)(message.getExpiresIn() / 1000))
                                                                                            .withProfileKey(profileKey.orNull())
                                                                                            .withQuote(quote.orNull())
+                                                                                           .withSharedContacts(sharedContacts)
                                                                                            .asExpirationUpdate(message.isExpirationUpdate())
                                                                                            .build();
 

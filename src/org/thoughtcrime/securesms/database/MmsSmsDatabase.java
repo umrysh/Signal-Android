@@ -19,7 +19,8 @@ package org.thoughtcrime.securesms.database;
 import android.content.Context;
 import android.database.Cursor;
 import android.support.annotation.NonNull;
-import android.util.Log;
+import android.support.annotation.Nullable;
+import org.thoughtcrime.securesms.logging.Log;
 
 import net.sqlcipher.database.SQLiteDatabase;
 import net.sqlcipher.database.SQLiteQueryBuilder;
@@ -27,6 +28,7 @@ import net.sqlcipher.database.SQLiteQueryBuilder;
 import org.thoughtcrime.securesms.database.MessagingDatabase.SyncMessageId;
 import org.thoughtcrime.securesms.database.helpers.SQLCipherOpenHelper;
 import org.thoughtcrime.securesms.database.model.MessageRecord;
+import org.thoughtcrime.securesms.util.Util;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -64,28 +66,47 @@ public class MmsSmsDatabase extends Database {
                                               MmsDatabase.QUOTE_ID,
                                               MmsDatabase.QUOTE_AUTHOR,
                                               MmsDatabase.QUOTE_BODY,
-                                              MmsDatabase.QUOTE_ATTACHMENT};
+                                              MmsDatabase.QUOTE_MISSING,
+                                              MmsDatabase.QUOTE_ATTACHMENT,
+                                              MmsDatabase.SHARED_CONTACTS};
 
   public MmsSmsDatabase(Context context, SQLCipherOpenHelper databaseHelper) {
     super(context, databaseHelper);
   }
 
-  public Cursor getMessagesFor(long timestamp) {
-    return queryTables(PROJECTION, MmsSmsColumns.NORMALIZED_DATE_SENT + " = " + timestamp, null, null);
+  public @Nullable MessageRecord getMessageFor(long timestamp, Address author) {
+    MmsSmsDatabase db = DatabaseFactory.getMmsSmsDatabase(context);
+
+    try (Cursor cursor = queryTables(PROJECTION, MmsSmsColumns.NORMALIZED_DATE_SENT + " = " + timestamp, null, null)) {
+      MmsSmsDatabase.Reader reader = db.readerFor(cursor);
+
+      MessageRecord messageRecord;
+
+      while ((messageRecord = reader.getNext()) != null) {
+        if ((Util.isOwnNumber(context, author) && messageRecord.isOutgoing()) ||
+            (!Util.isOwnNumber(context, author) && messageRecord.getIndividualRecipient().getAddress().equals(author)))
+        {
+          return messageRecord;
+        }
+      }
+    }
+
+    return null;
   }
 
-  public Cursor getConversation(long threadId, long limit) {
+  public Cursor getConversation(long threadId, long offset, long limit) {
     String order     = MmsSmsColumns.NORMALIZED_DATE_RECEIVED + " DESC";
     String selection = MmsSmsColumns.THREAD_ID + " = " + threadId;
+    String limitStr  = limit > 0 || offset > 0 ? offset + ", " + limit : null;
 
-    Cursor cursor = queryTables(PROJECTION, selection, order, limit > 0 ? String.valueOf(limit) : null);
+    Cursor cursor = queryTables(PROJECTION, selection, order, limitStr);
     setNotifyConverationListeners(cursor, threadId);
 
     return cursor;
   }
 
   public Cursor getConversation(long threadId) {
-    return getConversation(threadId, 0);
+    return getConversation(threadId, 0, 0);
   }
 
   public Cursor getIdentityConflictMessagesForThread(long threadId) {
@@ -140,6 +161,46 @@ public class MmsSmsDatabase extends Database {
     DatabaseFactory.getMmsDatabase(context).incrementReceiptCount(syncMessageId, timestamp, false, true);
   }
 
+  public int getQuotedMessagePosition(long threadId, long quoteId, @NonNull Address address) {
+    String order     = MmsSmsColumns.NORMALIZED_DATE_RECEIVED + " DESC";
+    String selection = MmsSmsColumns.THREAD_ID + " = " + threadId;
+
+    try (Cursor cursor = queryTables(new String[]{ MmsSmsColumns.NORMALIZED_DATE_SENT, MmsSmsColumns.ADDRESS }, selection, order, null)) {
+      String  serializedAddress = address.serialize();
+      boolean isOwnNumber       = Util.isOwnNumber(context, address);
+
+      while (cursor != null && cursor.moveToNext()) {
+        boolean quoteIdMatches = cursor.getLong(0) == quoteId;
+        boolean addressMatches = serializedAddress.equals(cursor.getString(1));
+
+        if (quoteIdMatches && (addressMatches || isOwnNumber)) {
+          return cursor.getPosition();
+        }
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Retrieves the position of the message with the provided timestamp in the query results you'd
+   * get from calling {@link #getConversation(long)}.
+   *
+   * Note: This could give back incorrect results in the situation where multiple messages have the
+   * same received timestamp. However, because this was designed to determine where to scroll to,
+   * you'll still wind up in about the right spot.
+   */
+  public int getMessagePositionInConversation(long threadId, long receivedTimestamp) {
+    String order     = MmsSmsColumns.NORMALIZED_DATE_RECEIVED + " DESC";
+    String selection = MmsSmsColumns.THREAD_ID + " = " + threadId + " AND " + MmsSmsColumns.NORMALIZED_DATE_RECEIVED + " > " + receivedTimestamp;
+
+    try (Cursor cursor = queryTables(new String[]{ "COUNT(*)" }, selection, order, null)) {
+      if (cursor != null && cursor.moveToFirst()) {
+        return cursor.getInt(0);
+      }
+    }
+    return -1;
+  }
+
   private Cursor queryTables(String[] projection, String selection, String order, String limit) {
     String[] mmsProjection = {MmsDatabase.DATE_SENT + " AS " + MmsSmsColumns.NORMALIZED_DATE_SENT,
                               MmsDatabase.DATE_RECEIVED + " AS " + MmsSmsColumns.NORMALIZED_DATE_RECEIVED,
@@ -179,7 +240,9 @@ public class MmsSmsDatabase extends Database {
                               MmsDatabase.QUOTE_ID,
                               MmsDatabase.QUOTE_AUTHOR,
                               MmsDatabase.QUOTE_BODY,
-                              MmsDatabase.QUOTE_ATTACHMENT};
+                              MmsDatabase.QUOTE_MISSING,
+                              MmsDatabase.QUOTE_ATTACHMENT,
+                              MmsDatabase.SHARED_CONTACTS};
 
     String[] smsProjection = {SmsDatabase.DATE_SENT + " AS " + MmsSmsColumns.NORMALIZED_DATE_SENT,
                               SmsDatabase.DATE_RECEIVED + " AS " + MmsSmsColumns.NORMALIZED_DATE_RECEIVED,
@@ -201,7 +264,9 @@ public class MmsSmsDatabase extends Database {
                               MmsDatabase.QUOTE_ID,
                               MmsDatabase.QUOTE_AUTHOR,
                               MmsDatabase.QUOTE_BODY,
-                              MmsDatabase.QUOTE_ATTACHMENT};
+                              MmsDatabase.QUOTE_MISSING,
+                              MmsDatabase.QUOTE_ATTACHMENT,
+                              MmsDatabase.SHARED_CONTACTS};
 
     SQLiteQueryBuilder mmsQueryBuilder = new SQLiteQueryBuilder();
     SQLiteQueryBuilder smsQueryBuilder = new SQLiteQueryBuilder();
@@ -263,7 +328,9 @@ public class MmsSmsDatabase extends Database {
     mmsColumnsPresent.add(MmsDatabase.QUOTE_ID);
     mmsColumnsPresent.add(MmsDatabase.QUOTE_AUTHOR);
     mmsColumnsPresent.add(MmsDatabase.QUOTE_BODY);
+    mmsColumnsPresent.add(MmsDatabase.QUOTE_MISSING);
     mmsColumnsPresent.add(MmsDatabase.QUOTE_ATTACHMENT);
+    mmsColumnsPresent.add(MmsDatabase.SHARED_CONTACTS);
 
     Set<String> smsColumnsPresent = new HashSet<>();
     smsColumnsPresent.add(MmsSmsColumns.ID);
@@ -299,7 +366,7 @@ public class MmsSmsDatabase extends Database {
     @SuppressWarnings("deprecation")
     String query      = outerQueryBuilder.buildQuery(projection, null, null, null, null, null, null);
 
-    Log.w("MmsSmsDatabase", "Executing query: " + query);
+    Log.d(TAG, "Executing query: " + query);
     SQLiteDatabase db = databaseHelper.getReadableDatabase();
     return db.rawQuery(query, null);
   }

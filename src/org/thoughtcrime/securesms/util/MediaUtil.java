@@ -3,15 +3,13 @@ package org.thoughtcrime.securesms.util;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
 import android.provider.MediaStore;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
-import android.support.media.ExifInterface;
 import android.text.TextUtils;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 import android.util.Pair;
 import android.webkit.MimeTypeMap;
 
@@ -46,6 +44,7 @@ public class MediaUtil {
   public static final String AUDIO_AAC         = "audio/aac";
   public static final String AUDIO_UNSPECIFIED = "audio/*";
   public static final String VIDEO_UNSPECIFIED = "video/*";
+  public static final String VCARD             = "text/x-vcard";
 
 
   public static Slide getSlideForAttachment(Context context, Attachment attachment) {
@@ -70,8 +69,8 @@ public class MediaUtil {
   public static @Nullable String getMimeType(Context context, Uri uri) {
     if (uri == null) return null;
 
-    if (PersistentBlobProvider.isAuthority(context, uri)) {
-      return PersistentBlobProvider.getMimeType(context, uri);
+    if (PartAuthority.isLocalUri(uri)) {
+      return PartAuthority.getAttachmentContentType(context, uri);
     }
 
     String type = context.getContentResolver().getType(uri);
@@ -79,6 +78,7 @@ public class MediaUtil {
       final String extension = MimeTypeMap.getFileExtensionFromUrl(uri.toString());
       type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase());
     }
+
     return getCorrectedMimeType(type);
   }
 
@@ -198,6 +198,10 @@ public class MediaUtil {
     return !TextUtils.isEmpty(contentType) && contentType.trim().startsWith("video/");
   }
 
+  public static boolean isVcard(String contentType) {
+    return !TextUtils.isEmpty(contentType) && contentType.trim().equals(VCARD);
+  }
+
   public static boolean isGif(String contentType) {
     return !TextUtils.isEmpty(contentType) && contentType.trim().equals("image/gif");
   }
@@ -227,7 +231,7 @@ public class MediaUtil {
   }
 
   public static boolean hasVideoThumbnail(Uri uri) {
-    Log.w(TAG, "Checking: " + uri);
+    Log.i(TAG, "Checking: " + uri);
 
     if (uri == null || !ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) {
       return false;

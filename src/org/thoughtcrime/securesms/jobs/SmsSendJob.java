@@ -7,7 +7,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SmsManager;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
@@ -23,13 +23,14 @@ import org.thoughtcrime.securesms.service.SmsDeliveryListener;
 import org.thoughtcrime.securesms.transport.UndeliverableMessageException;
 import org.thoughtcrime.securesms.util.NumberUtil;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
-import org.whispersystems.jobqueue.JobParameters;
+import org.thoughtcrime.securesms.jobmanager.JobParameters;
 
 import java.util.ArrayList;
 
 public class SmsSendJob extends SendJob {
 
-  private static final String TAG = SmsSendJob.class.getSimpleName();
+  private static final long   serialVersionUID = -5118520036244759718L;
+  private static final String TAG              = SmsSendJob.class.getSimpleName();
 
   private final long messageId;
 
@@ -39,7 +40,9 @@ public class SmsSendJob extends SendJob {
   }
 
   @Override
-  public void onAdded() {}
+  public void onAdded() {
+    Log.i(TAG, "onAdded() messageId: " + messageId);
+  }
 
   @Override
   public void onSend(MasterSecret masterSecret) throws NoSuchMessageException {
@@ -47,9 +50,9 @@ public class SmsSendJob extends SendJob {
     SmsMessageRecord record   = database.getMessage(messageId);
 
     try {
-      Log.w(TAG, "Sending message: " + messageId);
-
+      Log.i(TAG, "Sending message: " + messageId);
       deliver(record);
+      Log.i(TAG, "Sent message: " + messageId);
     } catch (UndeliverableMessageException ude) {
       Log.w(TAG, ude);
       DatabaseFactory.getSmsDatabase(context).markAsSentFailed(record.getId());
@@ -64,7 +67,7 @@ public class SmsSendJob extends SendJob {
 
   @Override
   public void onCanceled() {
-    Log.w(TAG, "onCanceled()");
+    Log.w(TAG, "onCanceled() messageId: " + messageId);
     long      threadId  = DatabaseFactory.getSmsDatabase(context).getThreadIdForMessage(messageId);
     Recipient recipient = DatabaseFactory.getThreadDatabase(context).getRecipientForThreadId(threadId);
 
@@ -105,8 +108,8 @@ public class SmsSendJob extends SendJob {
       getSmsManagerFor(message.getSubscriptionId()).sendMultipartTextMessage(recipient, null, messages, sentIntents, deliveredIntents);
     } catch (NullPointerException | IllegalArgumentException npe) {
       Log.w(TAG, npe);
-      Log.w(TAG, "Recipient: " + recipient);
-      Log.w(TAG, "Message Parts: " + messages.size());
+      Log.i(TAG, "Recipient: " + recipient);
+      Log.i(TAG, "Message Parts: " + messages.size());
 
       try {
         for (int i=0;i<messages.size();i++) {

@@ -5,12 +5,17 @@ import android.annotation.SuppressLint;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.support.annotation.NonNull;
+
+import org.thoughtcrime.securesms.database.RecipientDatabase;
+import org.thoughtcrime.securesms.logging.Log;
 import android.util.Pair;
 
 import net.sqlcipher.database.SQLiteDatabase;
 
 import org.greenrobot.eventbus.EventBus;
+import org.thoughtcrime.securesms.attachments.AttachmentId;
 import org.thoughtcrime.securesms.backup.BackupProtos.Attachment;
 import org.thoughtcrime.securesms.backup.BackupProtos.BackupFrame;
 import org.thoughtcrime.securesms.backup.BackupProtos.DatabaseVersion;
@@ -20,7 +25,14 @@ import org.thoughtcrime.securesms.crypto.AttachmentSecret;
 import org.thoughtcrime.securesms.crypto.ModernEncryptingPartOutputStream;
 import org.thoughtcrime.securesms.database.Address;
 import org.thoughtcrime.securesms.database.AttachmentDatabase;
+import org.thoughtcrime.securesms.database.DatabaseFactory;
+import org.thoughtcrime.securesms.database.GroupReceiptDatabase;
+import org.thoughtcrime.securesms.database.MmsDatabase;
+import org.thoughtcrime.securesms.database.SearchDatabase;
+import org.thoughtcrime.securesms.database.ThreadDatabase;
+import org.thoughtcrime.securesms.notifications.NotificationChannels;
 import org.thoughtcrime.securesms.profiles.AvatarHelper;
+import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.util.Conversions;
 import org.thoughtcrime.securesms.util.Util;
 import org.whispersystems.libsignal.kdf.HKDFv3;
@@ -62,6 +74,8 @@ public class FullBackupImporter extends FullBackupBase {
     try {
       db.beginTransaction();
 
+      dropAllTables(db);
+
       BackupFrame frame;
 
       while (!(frame = inputStream.readFrame()).getEnd()) {
@@ -74,6 +88,8 @@ public class FullBackupImporter extends FullBackupBase {
         else if (frame.hasAvatar())     processAvatar(context, frame.getAvatar(), inputStream);
       }
 
+      trimEntriesForExpiredMessages(context, db);
+
       db.setTransactionSuccessful();
     } finally {
       db.endTransaction();
@@ -82,11 +98,23 @@ public class FullBackupImporter extends FullBackupBase {
     EventBus.getDefault().post(new BackupEvent(BackupEvent.Type.FINISHED, count));
   }
 
-  private static void processVersion(@NonNull SQLiteDatabase db, DatabaseVersion version) {
+  private static void processVersion(@NonNull SQLiteDatabase db, DatabaseVersion version) throws IOException {
+    if (version.getVersion() > db.getVersion()) {
+      throw new DatabaseDowngradeException(db.getVersion(), version.getVersion());
+    }
+
     db.setVersion(version.getVersion());
   }
 
   private static void processStatement(@NonNull SQLiteDatabase db, SqlStatement statement) {
+    boolean isForSmsFtsSecretTable = statement.getStatement().contains(SearchDatabase.SMS_FTS_TABLE_NAME + "_");
+    boolean isForMmsFtsSecretTable = statement.getStatement().contains(SearchDatabase.MMS_FTS_TABLE_NAME + "_");
+
+    if (isForSmsFtsSecretTable || isForMmsFtsSecretTable) {
+      Log.i(TAG, "Ignoring import for statement: " + statement.getStatement());
+      return;
+    }
+
     List<Object> parameters = new LinkedList<>();
 
     for (SqlStatement.SqlParameter parameter : statement.getParametersList()) {
@@ -130,6 +158,41 @@ public class FullBackupImporter extends FullBackupBase {
     SharedPreferences preferences = context.getSharedPreferences(preference.getFile(), 0);
     preferences.edit().putString(preference.getKey(), preference.getValue()).commit();
   }
+
+  private static void dropAllTables(@NonNull SQLiteDatabase db) {
+    try (Cursor cursor = db.rawQuery("SELECT name, type FROM sqlite_master", null)) {
+      while (cursor != null && cursor.moveToNext()) {
+        String name = cursor.getString(0);
+        String type = cursor.getString(1);
+
+        if ("table".equals(type)) {
+          db.execSQL("DROP TABLE IF EXISTS " + name);
+        }
+      }
+    }
+  }
+
+  private static void trimEntriesForExpiredMessages(@NonNull Context context, @NonNull SQLiteDatabase db) {
+    String trimmedCondition = " NOT IN (SELECT " + MmsDatabase.ID + " FROM " + MmsDatabase.TABLE_NAME + ")";
+
+    db.delete(GroupReceiptDatabase.TABLE_NAME, GroupReceiptDatabase.MMS_ID + trimmedCondition, null);
+
+    String[] columns = new String[] { AttachmentDatabase.ROW_ID, AttachmentDatabase.UNIQUE_ID };
+    String   where   = AttachmentDatabase.MMS_ID + trimmedCondition;
+
+    try (Cursor cursor = db.query(AttachmentDatabase.TABLE_NAME, columns, where, null, null, null, null)) {
+      while (cursor != null && cursor.moveToNext()) {
+        DatabaseFactory.getAttachmentDatabase(context).deleteAttachment(new AttachmentId(cursor.getLong(0), cursor.getLong(1)));
+      }
+    }
+
+    try (Cursor cursor = db.query(ThreadDatabase.TABLE_NAME, new String[] { ThreadDatabase.ID }, ThreadDatabase.EXPIRES_IN + " > 0", null, null, null, null)) {
+      while (cursor != null && cursor.moveToNext()) {
+        DatabaseFactory.getThreadDatabase(context).update(cursor.getLong(0), false);
+      }
+    }
+  }
+
 
   private static class BackupRecordInputStream extends BackupStream {
 
@@ -204,9 +267,18 @@ public class FullBackupImporter extends FullBackupBase {
           mac.update(buffer, 0, read);
 
           byte[] plaintext = cipher.update(buffer, 0, read);
-          out.write(plaintext, 0, plaintext.length);
+
+          if (plaintext != null) {
+            out.write(plaintext, 0, plaintext.length);
+          }
 
           length -= read;
+        }
+
+        byte[] plaintext = cipher.doFinal();
+
+        if (plaintext != null) {
+          out.write(plaintext, 0, plaintext.length);
         }
 
         out.close();
@@ -225,7 +297,7 @@ public class FullBackupImporter extends FullBackupBase {
           //destination.delete();
           throw new IOException("Bad MAC");
         }
-      } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+      } catch (InvalidKeyException | InvalidAlgorithmParameterException | IllegalBlockSizeException | BadPaddingException e) {
         throw new AssertionError(e);
       }
     }
@@ -260,4 +332,9 @@ public class FullBackupImporter extends FullBackupBase {
     }
   }
 
+  public static class DatabaseDowngradeException extends IOException {
+    DatabaseDowngradeException(int currentVersion, int backupVersion) {
+      super("Tried to import a backup with version " + backupVersion + " into a database with version " + currentVersion);
+    }
+  }
 }

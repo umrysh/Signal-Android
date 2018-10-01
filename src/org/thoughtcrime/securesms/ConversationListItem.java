@@ -24,6 +24,12 @@ import android.graphics.drawable.RippleDrawable;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.TextUtils;
+import android.text.style.StyleSpan;
 import android.util.AttributeSet;
 import android.view.View;
 import android.widget.ImageView;
@@ -31,6 +37,7 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import com.amulyakhare.textdrawable.TextDrawable;
+import com.annimon.stream.Stream;
 
 import org.thoughtcrime.securesms.components.AlertView;
 import org.thoughtcrime.securesms.components.AvatarImageView;
@@ -41,10 +48,14 @@ import org.thoughtcrime.securesms.database.model.ThreadRecord;
 import org.thoughtcrime.securesms.mms.GlideRequests;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientModifiedListener;
+import org.thoughtcrime.securesms.search.model.MessageResult;
 import org.thoughtcrime.securesms.util.DateUtils;
+import org.thoughtcrime.securesms.util.ThemeUtil;
 import org.thoughtcrime.securesms.util.Util;
 import org.thoughtcrime.securesms.util.ViewUtil;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -57,8 +68,8 @@ public class ConversationListItem extends RelativeLayout
   @SuppressWarnings("unused")
   private final static String TAG = ConversationListItem.class.getSimpleName();
 
-  private final static Typeface BOLD_TYPEFACE  = Typeface.create("sans-serif", Typeface.BOLD);
-  private final static Typeface LIGHT_TYPEFACE = Typeface.create("sans-serif-light", Typeface.NORMAL);
+  private final static Typeface  BOLD_TYPEFACE  = Typeface.create("sans-serif-medium", Typeface.NORMAL);
+  private final static Typeface  LIGHT_TYPEFACE = Typeface.create("sans-serif", Typeface.NORMAL);
 
   private Set<Long>          selectedThreads;
   private Recipient          recipient;
@@ -107,8 +118,20 @@ public class ConversationListItem extends RelativeLayout
 
   @Override
   public void bind(@NonNull ThreadRecord thread,
-                   @NonNull GlideRequests glideRequests, @NonNull Locale locale,
-                   @NonNull Set<Long> selectedThreads, boolean batchMode)
+                   @NonNull GlideRequests glideRequests,
+                   @NonNull Locale locale,
+                   @NonNull Set<Long> selectedThreads,
+                   boolean batchMode)
+  {
+    bind(thread, glideRequests, locale, selectedThreads, batchMode, null);
+  }
+
+  public void bind(@NonNull ThreadRecord thread,
+                   @NonNull GlideRequests glideRequests,
+                   @NonNull Locale locale,
+                   @NonNull Set<Long> selectedThreads,
+                   boolean batchMode,
+                   @Nullable String highlightSubstring)
   {
     this.selectedThreads  = selectedThreads;
     this.recipient        = thread.getRecipient();
@@ -119,15 +142,23 @@ public class ConversationListItem extends RelativeLayout
     this.lastSeen         = thread.getLastSeen();
 
     this.recipient.addListener(this);
-    this.fromView.setText(recipient, unreadCount == 0);
+    if (highlightSubstring != null) {
+      this.fromView.setText(getHighlightedSpan(locale, recipient.getName(), highlightSubstring));
+    } else {
+      this.fromView.setText(recipient, unreadCount == 0);
+    }
 
     this.subjectView.setText(thread.getDisplayBody());
-//    this.subjectView.setTypeface(read ? LIGHT_TYPEFACE : BOLD_TYPEFACE);
+    this.subjectView.setTypeface(unreadCount == 0 ? LIGHT_TYPEFACE : BOLD_TYPEFACE);
+    this.subjectView.setTextColor(unreadCount == 0 ? ThemeUtil.getThemedColor(getContext(), R.attr.conversation_list_item_subject_color)
+                                                   : ThemeUtil.getThemedColor(getContext(), R.attr.conversation_list_item_unread_color));
 
     if (thread.getDate() > 0) {
       CharSequence date = DateUtils.getBriefRelativeTimeSpanString(getContext(), locale, thread.getDate());
-      dateView.setText(unreadCount == 0 ? date : color(getResources().getColor(R.color.textsecure_primary_dark), date));
+      dateView.setText(date);
       dateView.setTypeface(unreadCount == 0 ? LIGHT_TYPEFACE : BOLD_TYPEFACE);
+      dateView.setTextColor(unreadCount == 0 ? ThemeUtil.getThemedColor(getContext(), R.attr.conversation_list_item_date_color)
+                                             : ThemeUtil.getThemedColor(getContext(), R.attr.conversation_list_item_unread_color));
     }
 
     if (thread.isArchived()) {
@@ -142,6 +173,56 @@ public class ConversationListItem extends RelativeLayout
     setRippleColor(recipient);
     setUnreadIndicator(thread);
     this.contactPhotoImage.setAvatar(glideRequests, recipient, true);
+  }
+
+  public void bind(@NonNull  Recipient     contact,
+                   @NonNull  GlideRequests glideRequests,
+                   @NonNull  Locale        locale,
+                   @Nullable String        highlightSubstring)
+  {
+    this.selectedThreads = Collections.emptySet();
+    this.recipient       = contact;
+    this.glideRequests   = glideRequests;
+
+    this.recipient.addListener(this);
+
+    fromView.setText(getHighlightedSpan(locale, recipient.getName(), highlightSubstring));
+    subjectView.setText(getHighlightedSpan(locale, contact.getAddress().toPhoneString(), highlightSubstring));
+    dateView.setText("");
+    archivedView.setVisibility(GONE);
+    unreadIndicator.setVisibility(GONE);
+    deliveryStatusIndicator.setNone();
+    alertView.setNone();
+    thumbnailView.setVisibility(GONE);
+
+    setBatchState(false);
+    setRippleColor(contact);
+    contactPhotoImage.setAvatar(glideRequests, recipient, true);
+  }
+
+  public void bind(@NonNull  MessageResult messageResult,
+                   @NonNull  GlideRequests glideRequests,
+                   @NonNull  Locale        locale,
+                   @Nullable String        highlightSubstring)
+  {
+    this.selectedThreads = Collections.emptySet();
+    this.recipient       = messageResult.recipient;
+    this.glideRequests   = glideRequests;
+
+    this.recipient.addListener(this);
+
+    fromView.setText(recipient, true);
+    subjectView.setText(getHighlightedSpan(locale, messageResult.bodySnippet, highlightSubstring));
+    dateView.setText(DateUtils.getBriefRelativeTimeSpanString(getContext(), locale, messageResult.receivedTimestampMs));
+    archivedView.setVisibility(GONE);
+    unreadIndicator.setVisibility(GONE);
+    deliveryStatusIndicator.setNone();
+    alertView.setNone();
+    thumbnailView.setVisibility(GONE);
+
+    setBatchState(false);
+    setRippleColor(recipient);
+    contactPhotoImage.setAvatar(glideRequests, recipient, true);
   }
 
   @Override
@@ -239,6 +320,44 @@ public class ConversationListItem extends RelativeLayout
                                                  .endConfig()
                                                  .buildRound(String.valueOf(thread.getUnreadCount()), getResources().getColor(R.color.textsecure_primary_dark)));
     unreadIndicator.setVisibility(View.VISIBLE);
+  }
+
+  private Spanned getHighlightedSpan(@NonNull  Locale locale,
+                                     @Nullable String value,
+                                     @Nullable String highlight)
+  {
+    if (TextUtils.isEmpty(value)) {
+      return new SpannableString("");
+    }
+
+    value = value.replaceAll("\n", " ");
+
+    if (TextUtils.isEmpty(highlight)) {
+      return new SpannableString(value);
+    }
+
+    String       normalizedValue  = value.toLowerCase(locale);
+    String       normalizedTest   = highlight.toLowerCase(locale);
+    List<String> testTokens       = Stream.of(normalizedTest.split(" ")).filter(s -> s.trim().length() > 0).toList();
+
+    Spannable spanned          = new SpannableString(value);
+    int       searchStartIndex = 0;
+
+    for (String token : testTokens) {
+      if (searchStartIndex >= spanned.length()) {
+        break;
+      }
+
+      int start = normalizedValue.indexOf(token, searchStartIndex);
+
+      if (start >= 0) {
+        int end = Math.min(start + token.length(), spanned.length());
+        spanned.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_INCLUSIVE_EXCLUSIVE);
+        searchStartIndex = end;
+      }
+    }
+
+    return spanned;
   }
 
   @Override

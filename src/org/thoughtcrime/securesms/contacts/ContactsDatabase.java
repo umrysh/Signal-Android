@@ -32,12 +32,11 @@ import android.provider.ContactsContract.RawContacts;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
-import android.util.Log;
 import android.util.Pair;
 
-import org.thoughtcrime.securesms.ContactSelectionListFragment;
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.database.Address;
+import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.util.Util;
 import org.whispersystems.libsignal.util.guava.Optional;
 
@@ -90,7 +89,7 @@ public class ContactsDatabase {
     try (Cursor cursor = context.getContentResolver().query(currentContactsUri, projection, RawContacts.DELETED + " = ?", new String[] {"1"}, null)) {
       while (cursor != null && cursor.moveToNext()) {
         long rawContactId = cursor.getLong(0);
-        Log.w(TAG, "Deleting raw contact: " + cursor.getString(1) + ", " + rawContactId);
+        Log.i(TAG, "Deleting raw contact: " + cursor.getString(1) + ", " + rawContactId);
 
         context.getContentResolver().delete(currentContactsUri, RawContacts._ID + " = ?", new String[] {String.valueOf(rawContactId)});
       }
@@ -113,7 +112,7 @@ public class ContactsDatabase {
         Optional<SystemContactInfo> systemContactInfo = getSystemContactInfo(registeredAddress);
 
         if (systemContactInfo.isPresent()) {
-          Log.w(TAG, "Adding number: " + registeredAddress);
+          Log.i(TAG, "Adding number: " + registeredAddress);
           addTextSecureRawContact(operations, account, systemContactInfo.get().number,
                                   systemContactInfo.get().name, systemContactInfo.get().id);
         }
@@ -123,16 +122,16 @@ public class ContactsDatabase {
     for (Map.Entry<Address, SignalContact> currentContactEntry : currentContacts.entrySet()) {
       if (!registeredAddressSet.contains(currentContactEntry.getKey())) {
         if (remove) {
-          Log.w(TAG, "Removing number: " + currentContactEntry.getKey());
+          Log.i(TAG, "Removing number: " + currentContactEntry.getKey());
           removeTextSecureRawContact(operations, account, currentContactEntry.getValue().getId());
         }
       } else if (!currentContactEntry.getValue().isVoiceSupported()) {
-        Log.w(TAG, "Adding voice support: " + currentContactEntry.getKey());
+        Log.i(TAG, "Adding voice support: " + currentContactEntry.getKey());
         addContactVoiceSupport(operations, currentContactEntry.getKey(), currentContactEntry.getValue().getId());
       } else if (!Util.isStringEquals(currentContactEntry.getValue().getRawDisplayName(),
                                       currentContactEntry.getValue().getAggregateDisplayName()))
       {
-        Log.w(TAG, "Updating display name: " + currentContactEntry.getKey());
+        Log.i(TAG, "Updating display name: " + currentContactEntry.getKey());
         updateDisplayName(operations, currentContactEntry.getValue().getAggregateDisplayName(), currentContactEntry.getValue().getId(), currentContactEntry.getValue().getDisplayNameSource());
       }
     }
@@ -143,7 +142,7 @@ public class ContactsDatabase {
   }
 
   @SuppressLint("Recycle")
-  @NonNull Cursor querySystemContacts(@Nullable String filter) {
+  public @NonNull Cursor querySystemContacts(@Nullable String filter) {
     Uri uri;
 
     if (!TextUtils.isEmpty(filter)) {
@@ -191,7 +190,7 @@ public class ContactsDatabase {
   }
 
   @SuppressLint("Recycle")
-  @NonNull Cursor queryTextSecureContacts(String filter) {
+  public @NonNull Cursor queryTextSecureContacts(String filter) {
     String[] projection = new String[] {ContactsContract.Contacts.DISPLAY_NAME,
                                         ContactsContract.Data.DATA1};
 
@@ -225,6 +224,114 @@ public class ContactsDatabase {
                                        new Pair<>(CONTACT_TYPE_COLUMN, PUSH_TYPE));
 
   }
+
+  public @Nullable Cursor getNameDetails(long contactId) {
+    String[] projection = new String[] { ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME,
+                                         ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME,
+                                         ContactsContract.CommonDataKinds.StructuredName.FAMILY_NAME,
+                                         ContactsContract.CommonDataKinds.StructuredName.PREFIX,
+                                         ContactsContract.CommonDataKinds.StructuredName.SUFFIX,
+                                         ContactsContract.CommonDataKinds.StructuredName.MIDDLE_NAME };
+    String   selection  = ContactsContract.Data.CONTACT_ID + " = ? AND " + ContactsContract.Data.MIMETYPE + " = ?";
+    String[] args       = new String[] { String.valueOf(contactId), ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE };
+
+    return context.getContentResolver().query(ContactsContract.Data.CONTENT_URI,
+                                              projection,
+                                              selection,
+                                              args,
+                                              null);
+  }
+
+  public @Nullable String getOrganizationName(long contactId) {
+    String[] projection = new String[] { ContactsContract.CommonDataKinds.Organization.COMPANY };
+    String   selection  = ContactsContract.Data.CONTACT_ID + " = ? AND " + ContactsContract.Data.MIMETYPE + " = ?";
+    String[] args       = new String[] { String.valueOf(contactId), ContactsContract.CommonDataKinds.Organization.CONTENT_ITEM_TYPE };
+
+    try (Cursor cursor = context.getContentResolver().query(ContactsContract.Data.CONTENT_URI,
+                                                            projection,
+                                                            selection,
+                                                            args,
+                                                            null))
+    {
+      if (cursor != null && cursor.moveToFirst()) {
+        return cursor.getString(0);
+      }
+    }
+
+    return null;
+  }
+
+  public @Nullable Cursor getPhoneDetails(long contactId) {
+    String[] projection = new String[] { ContactsContract.CommonDataKinds.Phone.NUMBER,
+                                         ContactsContract.CommonDataKinds.Phone.TYPE,
+                                         ContactsContract.CommonDataKinds.Phone.LABEL };
+    String   selection  = ContactsContract.Data.CONTACT_ID + " = ? AND " + ContactsContract.Data.MIMETYPE + " = ?";
+    String[] args       = new String[] { String.valueOf(contactId), ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE };
+
+    return context.getContentResolver().query(ContactsContract.Data.CONTENT_URI,
+        projection,
+        selection,
+        args,
+        null);
+  }
+
+  public @Nullable Cursor getEmailDetails(long contactId) {
+    String[] projection = new String[] { ContactsContract.CommonDataKinds.Email.ADDRESS,
+                                         ContactsContract.CommonDataKinds.Email.TYPE,
+                                         ContactsContract.CommonDataKinds.Email.LABEL };
+    String   selection  = ContactsContract.Data.CONTACT_ID + " = ? AND " + ContactsContract.Data.MIMETYPE + " = ?";
+    String[] args       = new String[] { String.valueOf(contactId), ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE };
+
+    return context.getContentResolver().query(ContactsContract.Data.CONTENT_URI,
+                                              projection,
+                                              selection,
+                                              args,
+                                              null);
+  }
+
+  public @Nullable Cursor getPostalAddressDetails(long contactId) {
+    String[] projection = new String[] { ContactsContract.CommonDataKinds.StructuredPostal.TYPE,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.LABEL,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.STREET,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.POBOX,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.NEIGHBORHOOD,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.CITY,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.REGION,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.POSTCODE,
+                                         ContactsContract.CommonDataKinds.StructuredPostal.COUNTRY };
+    String   selection  = ContactsContract.Data.CONTACT_ID + " = ? AND " + ContactsContract.Data.MIMETYPE + " = ?";
+    String[] args       = new String[] { String.valueOf(contactId), ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE };
+
+    return context.getContentResolver().query(ContactsContract.Data.CONTENT_URI,
+                                              projection,
+                                              selection,
+                                              args,
+                                              null);
+  }
+
+  public @Nullable Uri getAvatarUri(long contactId) {
+    String[] projection = new String[] { ContactsContract.CommonDataKinds.Photo.PHOTO_URI };
+    String   selection  = ContactsContract.Data.CONTACT_ID + " = ? AND " + ContactsContract.Data.MIMETYPE + " = ?";
+    String[] args       = new String[] { String.valueOf(contactId), ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE };
+
+    try (Cursor cursor = context.getContentResolver().query(ContactsContract.Data.CONTENT_URI,
+                                                            projection,
+                                                            selection,
+                                                            args,
+                                                            null))
+    {
+      if (cursor != null && cursor.moveToFirst()) {
+        String uri = cursor.getString(0);
+        if (uri != null) {
+          return Uri.parse(uri);
+        }
+      }
+    }
+
+    return null;
+  }
+
+
 
   private void addContactVoiceSupport(List<ContentProviderOperation> operations,
                                       @NonNull Address address, long rawContactId)

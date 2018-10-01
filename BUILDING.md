@@ -27,14 +27,16 @@ The following steps should help you (re)build Signal from the command line.
 
         sdk.dir=/Application/android-sdk-macosx
 
-5. Execute Gradle:
+5. Using Java 8 
+
+6. Execute Gradle:
 
         ./gradlew build
 
 Visual assets
 ----------------------
 
-Source assets tend to be large binary blobs, which are best stored outside of git repositories. We host ours in a [Pixelapse repository](https://www.pixelapse.com/openwhispersystems/projects/signal-android/). Some source files are SVGs that can be auto-colored and sized using a tool like [android-res-utils](https://github.com/sebkur/android-res-utils).
+Source assets tend to be large binary blobs, which are best stored outside of git repositories. Some source files are SVGs that can be auto-colored and sized using a tool like [android-res-utils](https://github.com/sebkur/android-res-utils).
 
 Sample command for generating our audio placeholder image:
 

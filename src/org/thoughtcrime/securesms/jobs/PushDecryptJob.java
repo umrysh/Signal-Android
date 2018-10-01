@@ -3,12 +3,11 @@ package org.thoughtcrime.securesms.jobs;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.database.Cursor;
 import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 import android.util.Pair;
 
 import org.thoughtcrime.securesms.ApplicationContext;
@@ -18,6 +17,8 @@ import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.attachments.Attachment;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.attachments.PointerAttachment;
+import org.thoughtcrime.securesms.contactshare.Contact;
+import org.thoughtcrime.securesms.contactshare.ContactModelMapper;
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.SecurityEvent;
 import org.thoughtcrime.securesms.crypto.storage.SignalProtocolStoreImpl;
@@ -29,7 +30,6 @@ import org.thoughtcrime.securesms.database.MessagingDatabase;
 import org.thoughtcrime.securesms.database.MessagingDatabase.InsertResult;
 import org.thoughtcrime.securesms.database.MessagingDatabase.SyncMessageId;
 import org.thoughtcrime.securesms.database.MmsDatabase;
-import org.thoughtcrime.securesms.database.MmsSmsDatabase;
 import org.thoughtcrime.securesms.database.NoSuchMessageException;
 import org.thoughtcrime.securesms.database.PushDatabase;
 import org.thoughtcrime.securesms.database.RecipientDatabase;
@@ -39,14 +39,16 @@ import org.thoughtcrime.securesms.database.ThreadDatabase;
 import org.thoughtcrime.securesms.database.model.MessageRecord;
 import org.thoughtcrime.securesms.database.model.MmsMessageRecord;
 import org.thoughtcrime.securesms.groups.GroupMessageProcessor;
+import org.thoughtcrime.securesms.jobmanager.JobParameters;
 import org.thoughtcrime.securesms.mms.IncomingMediaMessage;
-import org.thoughtcrime.securesms.mms.QuoteModel;
 import org.thoughtcrime.securesms.mms.MmsException;
 import org.thoughtcrime.securesms.mms.OutgoingExpirationUpdateMessage;
 import org.thoughtcrime.securesms.mms.OutgoingMediaMessage;
 import org.thoughtcrime.securesms.mms.OutgoingSecureMediaMessage;
+import org.thoughtcrime.securesms.mms.QuoteModel;
 import org.thoughtcrime.securesms.mms.SlideDeck;
 import org.thoughtcrime.securesms.notifications.MessageNotifier;
+import org.thoughtcrime.securesms.notifications.NotificationChannels;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.push.SignalServiceNetworkAccess;
 //import org.thoughtcrime.securesms.service.KeyCachingService;
@@ -62,8 +64,6 @@ import org.thoughtcrime.securesms.util.Base64;
 import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.IdentityUtil;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
-import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.jobqueue.JobParameters;
 import org.whispersystems.libsignal.DuplicateMessageException;
 import org.whispersystems.libsignal.IdentityKey;
 import org.whispersystems.libsignal.InvalidKeyException;
@@ -100,6 +100,7 @@ import org.whispersystems.signalservice.api.messages.multidevice.RequestMessage;
 import org.whispersystems.signalservice.api.messages.multidevice.SentTranscriptMessage;
 import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage;
 import org.whispersystems.signalservice.api.messages.multidevice.VerifiedMessage;
+import org.whispersystems.signalservice.api.messages.shared.SharedContact;
 import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 import org.whispersystems.signalservice.api.util.InvalidNumberException;
 import org.whispersystems.signalservice.internal.push.PushServiceSocket;
@@ -107,11 +108,14 @@ import org.whispersystems.signalservice.internal.util.DynamicCredentialsProvider
 
 import java.io.InputStream;
 import java.security.MessageDigest;
-import java.io.File;
-import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+
+import java.io.File;
+import java.io.IOException;
 
 public class PushDecryptJob extends ContextJob {
 
@@ -149,7 +153,7 @@ public class PushDecryptJob extends ContextJob {
     if (TextSecurePreferences.getNeedsSqlCipherMigration(context)) {
       Log.w(TAG, "Skipping job, waiting for sqlcipher migration...");
       NotificationManagerCompat.from(context).notify(494949,
-                                                     new NotificationCompat.Builder(context)
+                                                     new NotificationCompat.Builder(context, NotificationChannels.getMessagesChannel(context))
                                                          .setSmallIcon(R.drawable.icon_notification)
                                                          .setPriority(NotificationCompat.PRIORITY_HIGH)
                                                          .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -189,13 +193,14 @@ public class PushDecryptJob extends ContextJob {
       SignalServiceContent content = cipher.decrypt(envelope);
 
       if (content.getDataMessage().isPresent()) {
-        SignalServiceDataMessage message = content.getDataMessage().get();
+        SignalServiceDataMessage message        = content.getDataMessage().get();
+        boolean                  isMediaMessage = message.getAttachments().isPresent() || message.getQuote().isPresent() || message.getSharedContacts().isPresent();
 
-        if      (message.isEndSession())                                                 handleEndSessionMessage(envelope, message, smsMessageId);
-        else if (message.isGroupUpdate())                                                handleGroupMessage(envelope, message, smsMessageId);
-        else if (message.isExpirationUpdate())                                           handleExpirationUpdate(envelope, message, smsMessageId);
-        else if (message.getAttachments().isPresent() || message.getQuote().isPresent()) handleMediaMessage(envelope, message, smsMessageId);
-        else if (message.getBody().isPresent())                                          handleTextMessage(envelope, message, smsMessageId);
+        if      (message.isEndSession())        handleEndSessionMessage(envelope, message, smsMessageId);
+        else if (message.isGroupUpdate())       handleGroupMessage(envelope, message, smsMessageId);
+        else if (message.isExpirationUpdate())  handleExpirationUpdate(envelope, message, smsMessageId);
+        else if (isMediaMessage)                handleMediaMessage(envelope, message, smsMessageId);
+        else if (message.getBody().isPresent()) handleTextMessage(envelope, message, smsMessageId);
 
         if (message.getGroupInfo().isPresent() && groupDatabase.isUnknownGroup(GroupUtil.getEncodedId(message.getGroupInfo().get().getGroupId(), false))) {
           handleUnknownGroupMessage(envelope, message.getGroupInfo().get());
@@ -214,7 +219,7 @@ public class PushDecryptJob extends ContextJob {
         else if (syncMessage.getGroups().isPresent())  handleSynchronizeGroupsMessage(envelope, syncMessage.getGroups().get());
         else                                           Log.w(TAG, "Contains no known sync types...");
       } else if (content.getCallMessage().isPresent()) {
-        Log.w(TAG, "Got call message...");
+        Log.i(TAG, "Got call message...");
         SignalServiceCallMessage message = content.getCallMessage().get();
 
         if      (message.getOfferMessage().isPresent())      handleCallOfferMessage(envelope, message.getOfferMessage().get(), smsMessageId);
@@ -280,7 +285,7 @@ public class PushDecryptJob extends ContextJob {
   private void handleCallAnswerMessage(@NonNull SignalServiceEnvelope envelope,
                                        @NonNull AnswerMessage message)
   {
-    Log.w(TAG, "handleCallAnswerMessage...");
+    Log.i(TAG, "handleCallAnswerMessage...");
     Intent intent = new Intent(context, WebRtcCallService.class);
     intent.setAction(WebRtcCallService.ACTION_RESPONSE_MESSAGE);
     intent.putExtra(WebRtcCallService.EXTRA_CALL_ID, message.getId());
@@ -311,7 +316,7 @@ public class PushDecryptJob extends ContextJob {
                                        @NonNull HangupMessage message,
                                        @NonNull Optional<Long> smsMessageId)
   {
-    Log.w(TAG, "handleCallHangupMessage");
+    Log.i(TAG, "handleCallHangupMessage");
     if (smsMessageId.isPresent()) {
       DatabaseFactory.getSmsDatabase(context).markAsMissedCall(smsMessageId.get());
     } else {
@@ -394,8 +399,13 @@ public class PushDecryptJob extends ContextJob {
   private void handleGroupMessage(@NonNull SignalServiceEnvelope envelope,
                                   @NonNull SignalServiceDataMessage message,
                                   @NonNull Optional<Long> smsMessageId)
+      throws MmsException
   {
     GroupMessageProcessor.process(context, envelope, message, false);
+
+    if (message.getExpiresInSeconds() != 0 && message.getExpiresInSeconds() != getMessageDestination(envelope, message).getExpireMessages()) {
+      handleExpirationUpdate(envelope, message, Optional.absent());
+    }
 
     if (smsMessageId.isPresent()) {
       DatabaseFactory.getSmsDatabase(context).deleteMessage(smsMessageId.get());
@@ -422,7 +432,7 @@ public class PushDecryptJob extends ContextJob {
                                                                  message.getExpiresInSeconds() * 1000L, true,
                                                                  Optional.fromNullable(envelope.getRelay()),
                                                                  Optional.absent(), message.getGroupInfo(),
-                                                                 Optional.absent(), Optional.absent());
+                                                                 Optional.absent(), Optional.absent(), Optional.absent());
 
 
 
@@ -488,7 +498,7 @@ public class PushDecryptJob extends ContextJob {
     if (message.isContactsRequest()) {
       ApplicationContext.getInstance(context)
                         .getJobManager()
-                        .add(new MultiDeviceContactUpdateJob(getContext()));
+                        .add(new MultiDeviceContactUpdateJob(getContext(), true));
     }
 
     if (message.isGroupsRequest()) {
@@ -569,17 +579,19 @@ public class PushDecryptJob extends ContextJob {
                                   @NonNull Optional<Long> smsMessageId)
       throws MmsException
   {
-    MmsDatabase          database     = DatabaseFactory.getMmsDatabase(context);
-    Recipient            recipient    = getMessageDestination(envelope, message);
-    Optional<QuoteModel> quote        = getValidatedQuote(message.getQuote());
-    IncomingMediaMessage mediaMessage = new IncomingMediaMessage(Address.fromExternal(context, envelope.getSource()),
-                                                                 message.getTimestamp(), -1,
-                                                                 message.getExpiresInSeconds() * 1000L, false,
-                                                                 Optional.fromNullable(envelope.getRelay()),
-                                                                 message.getBody(),
-                                                                 message.getGroupInfo(),
-                                                                 message.getAttachments(),
-                                                                 quote);
+    MmsDatabase             database       = DatabaseFactory.getMmsDatabase(context);
+    Recipient               recipient      = getMessageDestination(envelope, message);
+    Optional<QuoteModel>    quote          = getValidatedQuote(message.getQuote());
+    Optional<List<Contact>> sharedContacts = getContacts(message.getSharedContacts());
+    IncomingMediaMessage    mediaMessage   = new IncomingMediaMessage(Address.fromExternal(context, envelope.getSource()),
+                                                                      message.getTimestamp(), -1,
+                                                                      message.getExpiresInSeconds() * 1000L, false,
+                                                                      Optional.fromNullable(envelope.getRelay()),
+                                                                      message.getBody(),
+                                                                      message.getGroupInfo(),
+                                                                      message.getAttachments(),
+                                                                      quote,
+                                                                      sharedContacts);
 
     if (message.getExpiresInSeconds() != recipient.getExpireMessages()) {
       handleExpirationUpdate(envelope, message, Optional.absent());
@@ -627,14 +639,16 @@ public class PushDecryptJob extends ContextJob {
   private long handleSynchronizeSentMediaMessage(@NonNull SentTranscriptMessage message)
       throws MmsException
   {
-    MmsDatabase           database     = DatabaseFactory.getMmsDatabase(context);
-    Recipient             recipients   = getSyncMessageDestination(message);
-    Optional<QuoteModel>  quote        = getValidatedQuote(message.getMessage().getQuote());
-    OutgoingMediaMessage  mediaMessage = new OutgoingMediaMessage(recipients, message.getMessage().getBody().orNull(),
-                                                                  PointerAttachment.forPointers(message.getMessage().getAttachments()),
-                                                                  message.getTimestamp(), -1,
-                                                                  message.getMessage().getExpiresInSeconds() * 1000,
-                                                                  ThreadDatabase.DistributionTypes.DEFAULT, quote.orNull());
+    MmsDatabase              database       = DatabaseFactory.getMmsDatabase(context);
+    Recipient                recipients     = getSyncMessageDestination(message);
+    Optional<QuoteModel>     quote          = getValidatedQuote(message.getMessage().getQuote());
+    Optional<List<Contact>>  sharedContacts = getContacts(message.getMessage().getSharedContacts());
+    OutgoingMediaMessage     mediaMessage   = new OutgoingMediaMessage(recipients, message.getMessage().getBody().orNull(),
+                                                                       PointerAttachment.forPointers(message.getMessage().getAttachments()),
+                                                                       message.getTimestamp(), -1,
+                                                                       message.getMessage().getExpiresInSeconds() * 1000,
+                                                                       ThreadDatabase.DistributionTypes.DEFAULT, quote.orNull(),
+                                                                       sharedContacts.or(Collections.emptyList()));
 
     mediaMessage = new OutgoingSecureMediaMessage(mediaMessage);
 
@@ -715,13 +729,14 @@ public class PushDecryptJob extends ContextJob {
       handleSynchronizeSentExpirationUpdate(message);
     }
 
-    long threadId  = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient);
+    long    threadId  = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient);
+    boolean isGroup   = recipient.getAddress().isGroup();
 
     MessagingDatabase database;
     long              messageId;
 
-    if (recipient.getAddress().isGroup()) {
-      OutgoingMediaMessage outgoingMediaMessage = new OutgoingMediaMessage(recipient, new SlideDeck(), body, message.getTimestamp(), -1, expiresInMillis, ThreadDatabase.DistributionTypes.DEFAULT, null);
+    if (isGroup) {
+      OutgoingMediaMessage outgoingMediaMessage = new OutgoingMediaMessage(recipient, new SlideDeck(), body, message.getTimestamp(), -1, expiresInMillis, ThreadDatabase.DistributionTypes.DEFAULT, null, Collections.emptyList());
       outgoingMediaMessage = new OutgoingSecureMediaMessage(outgoingMediaMessage);
 
       messageId = DatabaseFactory.getMmsDatabase(context).insertMessageOutbox(outgoingMediaMessage, threadId, false, null);
@@ -739,7 +754,7 @@ public class PushDecryptJob extends ContextJob {
       database.markExpireStarted(messageId, message.getExpirationStartTimestamp());
       ApplicationContext.getInstance(context)
                         .getExpiringMessageManager()
-                        .scheduleDeletion(messageId, false, message.getExpirationStartTimestamp(), expiresInMillis);
+                        .scheduleDeletion(messageId, isGroup, message.getExpirationStartTimestamp(), expiresInMillis);
     }
 
     return threadId;
@@ -880,7 +895,7 @@ public class PushDecryptJob extends ContextJob {
                                      @NonNull SignalServiceReceiptMessage message)
   {
     for (long timestamp : message.getTimestamps()) {
-      Log.w(TAG, String.format("Received encrypted delivery receipt: (XXXXX, %d)", timestamp));
+      Log.i(TAG, String.format("Received encrypted delivery receipt: (XXXXX, %d)", timestamp));
       DatabaseFactory.getMmsSmsDatabase(context)
                      .incrementDeliveryReceiptCount(new SyncMessageId(Address.fromExternal(context, envelope.getSource()), timestamp), System.currentTimeMillis());
     }
@@ -891,7 +906,7 @@ public class PushDecryptJob extends ContextJob {
   {
     if (TextSecurePreferences.isReadReceiptsEnabled(context)) {
       for (long timestamp : message.getTimestamps()) {
-        Log.w(TAG, String.format("Received encrypted read receipt: (XXXXX, %d)", timestamp));
+        Log.i(TAG, String.format("Received encrypted read receipt: (XXXXX, %d)", timestamp));
 
         DatabaseFactory.getMmsSmsDatabase(context)
                        .incrementReadReceiptCount(new SyncMessageId(Address.fromExternal(context, envelope.getSource()), timestamp), envelope.getTimestamp());
@@ -912,36 +927,39 @@ public class PushDecryptJob extends ContextJob {
       return Optional.absent();
     }
 
-    MmsSmsDatabase db     = DatabaseFactory.getMmsSmsDatabase(context);
-    Address        author = Address.fromExternal(context, quote.get().getAuthor().getNumber());
+    Address       author  = Address.fromExternal(context, quote.get().getAuthor().getNumber());
+    MessageRecord message = DatabaseFactory.getMmsSmsDatabase(context).getMessageFor(quote.get().getId(), author);
 
-    try (Cursor cursor = db.getMessagesFor(quote.get().getId())) {
-      MmsSmsDatabase.Reader reader = db.readerFor(cursor);
+    if (message != null) {
+      Log.i(TAG, "Found matching message record...");
 
-      MessageRecord messageRecord;
+      List<Attachment> attachments = new LinkedList<>();
 
-      while ((messageRecord = reader.getNext()) != null) {
-        if ((Util.isOwnNumber(context, author) && messageRecord.isOutgoing()) ||
-            (!Util.isOwnNumber(context, author) && messageRecord.getIndividualRecipient().getAddress().equals(author)))
-        {
-          Log.w(TAG, "Found matching message record...");
-          List<Attachment> attachments = new LinkedList<>();
-
-          if (messageRecord.isMms()) {
-            attachments = ((MmsMessageRecord)messageRecord).getSlideDeck().asAttachments();
-          }
-
-          return Optional.of(new QuoteModel(quote.get().getId(), author, messageRecord.getBody(), attachments));
-        }
+      if (message.isMms()) {
+        attachments = ((MmsMessageRecord) message).getSlideDeck().asAttachments();
       }
+
+      return Optional.of(new QuoteModel(quote.get().getId(), author, message.getBody(), false, attachments));
     }
 
     Log.w(TAG, "Didn't find matching message record...");
-
     return Optional.of(new QuoteModel(quote.get().getId(),
                                       author,
                                       quote.get().getText(),
-                                      PointerAttachment.forPointers(Optional.of(quote.get().getAttachments()))));
+                                      true,
+                                      PointerAttachment.forPointers(quote.get().getAttachments())));
+  }
+
+  private Optional<List<Contact>> getContacts(Optional<List<SharedContact>> sharedContacts) {
+    if (!sharedContacts.isPresent()) return Optional.absent();
+
+    List<Contact> contacts = new ArrayList<>(sharedContacts.get().size());
+
+    for (SharedContact sharedContact : sharedContacts.get()) {
+      contacts.add(ContactModelMapper.remoteToLocal(sharedContact));
+    }
+
+    return Optional.of(contacts);
   }
 
   private Optional<InsertResult> insertPlaceholder(@NonNull SignalServiceEnvelope envelope) {

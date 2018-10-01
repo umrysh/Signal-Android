@@ -23,7 +23,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
 import android.support.v7.widget.RecyclerView;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -33,7 +33,6 @@ import com.annimon.stream.Stream;
 
 import org.thoughtcrime.securesms.ConversationAdapter.HeaderViewHolder;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
-import org.thoughtcrime.securesms.database.AttachmentDatabase;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.FastCursorRecyclerViewAdapter;
 import org.thoughtcrime.securesms.database.MmsSmsColumns;
@@ -49,6 +48,7 @@ import org.thoughtcrime.securesms.util.LRUCache;
 import org.thoughtcrime.securesms.util.StickyHeaderDecoration;
 import org.thoughtcrime.securesms.util.Util;
 import org.thoughtcrime.securesms.util.ViewUtil;
+import org.whispersystems.libsignal.util.guava.Optional;
 
 import java.lang.ref.SoftReference;
 import java.security.MessageDigest;
@@ -101,6 +101,8 @@ public class ConversationAdapter <V extends View & BindableConversationItem>
   private final @NonNull  Calendar          calendar;
   private final @NonNull  MessageDigest     digest;
 
+  private MessageRecord recordToPulseHighlight;
+
   protected static class ViewHolder extends RecyclerView.ViewHolder {
     public <V extends View & BindableConversationItem> ViewHolder(final @NonNull V itemView) {
       super(itemView);
@@ -132,7 +134,7 @@ public class ConversationAdapter <V extends View & BindableConversationItem>
   }
 
 
-  interface ItemClickListener {
+  interface ItemClickListener extends BindableConversationItem.EventListener {
     void onItemClick(MessageRecord item);
     void onItemLongClick(MessageRecord item);
   }
@@ -189,9 +191,25 @@ public class ConversationAdapter <V extends View & BindableConversationItem>
 
   @Override
   protected void onBindItemViewHolder(ViewHolder viewHolder, @NonNull MessageRecord messageRecord) {
-    long start = System.currentTimeMillis();
-    viewHolder.getView().bind(messageRecord, glideRequests, locale, batchSelected, recipient);
-    Log.w(TAG, "Bind time: " + (System.currentTimeMillis() - start));
+    long          start            = System.currentTimeMillis();
+    int           adapterPosition  = viewHolder.getAdapterPosition();
+    MessageRecord previousRecord   = adapterPosition < getItemCount() - 1 && !isFooterPosition(adapterPosition + 1) ? getRecordForPositionOrThrow(adapterPosition + 1) : null;
+    MessageRecord nextRecord       = adapterPosition > 0 && !isHeaderPosition(adapterPosition - 1) ? getRecordForPositionOrThrow(adapterPosition - 1) : null;
+
+    viewHolder.getView().bind(messageRecord,
+                              Optional.fromNullable(previousRecord),
+                              Optional.fromNullable(nextRecord),
+                              glideRequests,
+                              locale,
+                              batchSelected,
+                              recipient,
+                              messageRecord == recordToPulseHighlight);
+
+    if (messageRecord == recordToPulseHighlight) {
+      recordToPulseHighlight = null;
+    }
+
+    Log.d(TAG, "Bind time: " + (System.currentTimeMillis() - start));
   }
 
   @Override
@@ -209,7 +227,8 @@ public class ConversationAdapter <V extends View & BindableConversationItem>
       }
       return true;
     });
-    Log.w(TAG, "Inflate time: " + (System.currentTimeMillis() - start));
+    itemView.setEventListener(clickListener);
+    Log.d(TAG, "Inflate time: " + (System.currentTimeMillis() - start));
     return new ViewHolder(itemView);
   }
 
@@ -235,11 +254,7 @@ public class ConversationAdapter <V extends View & BindableConversationItem>
 
   @Override
   public int getItemViewType(@NonNull MessageRecord messageRecord) {
-    if (messageRecord.isGroupAction() || messageRecord.isCallLog() || messageRecord.isJoined() ||
-        messageRecord.isExpirationTimerUpdate() || messageRecord.isEndSession()                ||
-        messageRecord.isIdentityUpdate() || messageRecord.isIdentityVerified()                 ||
-        messageRecord.isIdentityDefault())
-    {
+    if (messageRecord.isUpdate()) {
       return MESSAGE_TYPE_UPDATE;
     } else if (hasAudio(messageRecord)) {
       if (messageRecord.isOutgoing()) return MESSAGE_TYPE_AUDIO_OUTGOING;
@@ -341,6 +356,13 @@ public class ConversationAdapter <V extends View & BindableConversationItem>
     return Collections.unmodifiableSet(new HashSet<>(batchSelected));
   }
 
+  public void pulseHighlightItem(int position) {
+    if (position < getItemCount()) {
+      recordToPulseHighlight = getRecordForPositionOrThrow(position);
+      notifyItemChanged(position);
+    }
+  }
+
   private boolean hasAudio(MessageRecord messageRecord) {
     return messageRecord.isMms() && ((MmsMessageRecord)messageRecord).getSlideDeck().getAudioSlide() != null;
   }
@@ -352,7 +374,6 @@ public class ConversationAdapter <V extends View & BindableConversationItem>
   private boolean hasThumbnail(MessageRecord messageRecord) {
     return messageRecord.isMms() && ((MmsMessageRecord)messageRecord).getSlideDeck().getThumbnailSlide() != null;
   }
-
 
   @Override
   public long getHeaderId(int position) {

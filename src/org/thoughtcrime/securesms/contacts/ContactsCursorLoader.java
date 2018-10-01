@@ -25,7 +25,6 @@ import android.provider.ContactsContract;
 import android.support.annotation.NonNull;
 import android.support.v4.content.CursorLoader;
 import android.text.TextUtils;
-import android.util.Log;
 
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.database.Address;
@@ -34,6 +33,7 @@ import org.thoughtcrime.securesms.database.GroupDatabase;
 import org.thoughtcrime.securesms.database.RecipientDatabase;
 import org.thoughtcrime.securesms.database.ThreadDatabase;
 import org.thoughtcrime.securesms.database.model.ThreadRecord;
+import org.thoughtcrime.securesms.logging.Log;
 import org.thoughtcrime.securesms.permissions.Permissions;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.util.NumberUtil;
@@ -63,6 +63,7 @@ public class ContactsCursorLoader extends CursorLoader {
                                                                   ContactsDatabase.LABEL_COLUMN,
                                                                   ContactsDatabase.CONTACT_TYPE_COLUMN};
 
+  private static final int RECENT_CONVERSATION_MAX = 25;
 
   private final String  filter;
   private final int     mode;
@@ -163,8 +164,8 @@ public class ContactsCursorLoader extends CursorLoader {
   private Cursor getRecentConversationsCursor() {
     ThreadDatabase threadDatabase = DatabaseFactory.getThreadDatabase(getContext());
 
-    MatrixCursor recentConversations = new MatrixCursor(CONTACT_PROJECTION, 5);
-    try (Cursor rawConversations = threadDatabase.getRecentConversationList(5)) {
+    MatrixCursor recentConversations = new MatrixCursor(CONTACT_PROJECTION, RECENT_CONVERSATION_MAX);
+    try (Cursor rawConversations = threadDatabase.getRecentConversationList(RECENT_CONVERSATION_MAX)) {
       ThreadDatabase.Reader reader = threadDatabase.readerFor(rawConversations);
       ThreadRecord threadRecord;
       while ((threadRecord = reader.getNext()) != null) {
@@ -239,7 +240,7 @@ public class ContactsCursorLoader extends CursorLoader {
                                      ContactsDatabase.NORMAL_TYPE});
         }
       }
-      Log.w(TAG, "filterNonPushContacts() -> " + (System.currentTimeMillis() - startMillis) + "ms");
+      Log.i(TAG, "filterNonPushContacts() -> " + (System.currentTimeMillis() - startMillis) + "ms");
       return matrix;
     } finally {
       cursor.close();

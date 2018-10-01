@@ -11,7 +11,7 @@ import android.support.annotation.ArrayRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 
 import org.greenrobot.eventbus.EventBus;
 import org.thoughtcrime.securesms.R;
@@ -54,7 +54,7 @@ public class TextSecurePreferences {
   private static final String LAST_EXPERIENCE_VERSION_PREF     = "last_experience_version_code";
   private static final String EXPERIENCE_DISMISSED_PREF        = "experience_dismissed";
   public  static final String RINGTONE_PREF                    = "pref_key_ringtone";
-  private static final String VIBRATE_PREF                     = "pref_key_vibrate";
+  public  static final String VIBRATE_PREF                     = "pref_key_vibrate";
   private static final String NOTIFICATION_PREF                = "pref_key_enable_notifications";
   public  static final String LED_COLOR_PREF                   = "pref_led_color";
   public  static final String LED_BLINK_PREF                   = "pref_led_blink";
@@ -150,6 +150,18 @@ public class TextSecurePreferences {
   private static final String REGISTRATION_LOCK_PIN_PREF               = "pref_registration_lock_pin";
   private static final String REGISTRATION_LOCK_LAST_REMINDER_TIME     = "pref_registration_lock_last_reminder_time";
   private static final String REGISTRATION_LOCK_NEXT_REMINDER_INTERVAL = "pref_registration_lock_next_reminder_interval";
+
+  private static final String SERVICE_OUTAGE         = "pref_service_outage";
+  private static final String LAST_OUTAGE_CHECK_TIME = "pref_last_outage_check_time";
+
+  private static final String LAST_FULL_CONTACT_SYNC_TIME = "pref_last_full_contact_sync_time";
+  private static final String NEEDS_FULL_CONTACT_SYNC     = "pref_needs_full_contact_sync";
+
+  private static final String LOG_ENCRYPTED_SECRET   = "pref_log_encrypted_secret";
+  private static final String LOG_UNENCRYPTED_SECRET = "pref_log_unencrypted_secret";
+
+  private static final String NOTIFICATION_CHANNEL_VERSION          = "pref_notification_channel_version";
+  private static final String NOTIFICATION_MESSAGES_CHANNEL_VERSION = "pref_notification_messages_channel_version";
 
   public static boolean isScreenLockEnabled(@NonNull Context context) {
     return getBooleanPreference(context, SCREEN_LOCK, false);
@@ -736,7 +748,7 @@ public class TextSecurePreferences {
   }
 
   public static void setPushRegistered(Context context, boolean registered) {
-    Log.w("TextSecurePreferences", "Setting push registered: " + registered);
+    Log.i(TAG, "Setting push registered: " + registered);
     setBooleanPreference(context, REGISTERED_GCM_PREF, registered);
   }
 
@@ -852,6 +864,10 @@ public class TextSecurePreferences {
     setStringPreference(context, CALL_RINGTONE_PREF, ringtone);
   }
 
+  public static void setNotificationVibrateEnabled(Context context, boolean enabled) {
+    setBooleanPreference(context, VIBRATE_PREF, enabled);
+  }
+
   public static boolean isNotificationVibrateEnabled(Context context) {
     return getBooleanPreference(context, VIBRATE_PREF, true);
   }
@@ -910,6 +926,70 @@ public class TextSecurePreferences {
     return getStringSetPreference(context,
                                   key,
                                   new HashSet<>(Arrays.asList(context.getResources().getStringArray(defaultValuesRes))));
+  }
+
+  public static void setLastOutageCheckTime(Context context, long timestamp) {
+    setLongPreference(context, LAST_OUTAGE_CHECK_TIME, timestamp);
+  }
+
+  public static long getLastOutageCheckTime(Context context) {
+    return getLongPreference(context, LAST_OUTAGE_CHECK_TIME, 0);
+  }
+
+  public static void setServiceOutage(Context context, boolean isOutage) {
+    setBooleanPreference(context, SERVICE_OUTAGE, isOutage);
+  }
+
+  public static boolean getServiceOutage(Context context) {
+    return getBooleanPreference(context, SERVICE_OUTAGE, false);
+  }
+
+  public static long getLastFullContactSyncTime(Context context) {
+    return getLongPreference(context, LAST_FULL_CONTACT_SYNC_TIME, 0);
+  }
+
+  public static void setLastFullContactSyncTime(Context context, long timestamp) {
+    setLongPreference(context, LAST_FULL_CONTACT_SYNC_TIME, timestamp);
+  }
+
+  public static boolean needsFullContactSync(Context context) {
+    return getBooleanPreference(context, NEEDS_FULL_CONTACT_SYNC, false);
+  }
+
+  public static void setNeedsFullContactSync(Context context, boolean needsSync) {
+    setBooleanPreference(context, NEEDS_FULL_CONTACT_SYNC, needsSync);
+  }
+
+  public static void setLogEncryptedSecret(Context context, String base64Secret) {
+    setStringPreference(context, LOG_ENCRYPTED_SECRET, base64Secret);
+  }
+
+  public static String getLogEncryptedSecret(Context context) {
+    return getStringPreference(context, LOG_ENCRYPTED_SECRET, null);
+  }
+
+  public static void setLogUnencryptedSecret(Context context, String base64Secret) {
+    setStringPreference(context, LOG_UNENCRYPTED_SECRET, base64Secret);
+  }
+
+  public static String getLogUnencryptedSecret(Context context) {
+    return getStringPreference(context, LOG_UNENCRYPTED_SECRET, null);
+  }
+
+  public static int getNotificationChannelVersion(Context context) {
+    return getIntegerPreference(context, NOTIFICATION_CHANNEL_VERSION, 1);
+  }
+
+  public static void setNotificationChannelVersion(Context context, int version) {
+    setIntegerPrefrence(context, NOTIFICATION_CHANNEL_VERSION, version);
+  }
+
+  public static int getNotificationMessagesChannelVersion(Context context) {
+    return getIntegerPreference(context, NOTIFICATION_MESSAGES_CHANNEL_VERSION, 1);
+  }
+
+  public static void setNotificationMessagesChannelVersion(Context context, int version) {
+    setIntegerPrefrence(context, NOTIFICATION_MESSAGES_CHANNEL_VERSION, version);
   }
 
   public static void setBooleanPreference(Context context, String key, boolean value) {

@@ -23,7 +23,6 @@ import android.net.Uri;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
-import android.util.Log;
 
 import com.annimon.stream.function.Consumer;
 
@@ -43,6 +42,8 @@ import org.thoughtcrime.securesms.database.GroupDatabase;
 import org.thoughtcrime.securesms.database.RecipientDatabase.RecipientSettings;
 import org.thoughtcrime.securesms.database.RecipientDatabase.RegisteredState;
 import org.thoughtcrime.securesms.database.RecipientDatabase.VibrateState;
+import org.thoughtcrime.securesms.logging.Log;
+import org.thoughtcrime.securesms.notifications.NotificationChannels;
 import org.thoughtcrime.securesms.recipients.RecipientProvider.RecipientDetails;
 import org.thoughtcrime.securesms.util.FutureTaskListener;
 import org.thoughtcrime.securesms.util.ListenableFutureTask;
@@ -90,7 +91,7 @@ public class Recipient implements RecipientModifiedListener {
   private @Nullable String         profileName;
   private @Nullable String         profileAvatar;
   private           boolean        profileSharing;
-  private           boolean        isSystemContact;
+  private           String         notificationChannel;
 
 
   @SuppressWarnings("ConstantConditions")
@@ -136,11 +137,11 @@ public class Recipient implements RecipientModifiedListener {
       this.seenInviteReminder    = stale.seenInviteReminder;
       this.defaultSubscriptionId = stale.defaultSubscriptionId;
       this.registered            = stale.registered;
+      this.notificationChannel   = stale.notificationChannel;
       this.profileKey            = stale.profileKey;
       this.profileName           = stale.profileName;
       this.profileAvatar         = stale.profileAvatar;
       this.profileSharing        = stale.profileSharing;
-      this.isSystemContact       = stale.isSystemContact;
       this.participants.clear();
       this.participants.addAll(stale.participants);
     }
@@ -160,11 +161,11 @@ public class Recipient implements RecipientModifiedListener {
       this.seenInviteReminder    = details.get().seenInviteReminder;
       this.defaultSubscriptionId = details.get().defaultSubscriptionId;
       this.registered            = details.get().registered;
+      this.notificationChannel   = details.get().notificationChannel;
       this.profileKey            = details.get().profileKey;
       this.profileName           = details.get().profileName;
       this.profileAvatar         = details.get().profileAvatar;
       this.profileSharing        = details.get().profileSharing;
-      this.isSystemContact       = details.get().systemContact;
       this.participants.clear();
       this.participants.addAll(details.get().participants);
     }
@@ -190,12 +191,12 @@ public class Recipient implements RecipientModifiedListener {
             Recipient.this.seenInviteReminder    = result.seenInviteReminder;
             Recipient.this.defaultSubscriptionId = result.defaultSubscriptionId;
             Recipient.this.registered            = result.registered;
+            Recipient.this.notificationChannel   = result.notificationChannel;
             Recipient.this.profileKey            = result.profileKey;
             Recipient.this.profileName           = result.profileName;
             Recipient.this.profileAvatar         = result.profileAvatar;
             Recipient.this.profileSharing        = result.profileSharing;
             Recipient.this.profileName           = result.profileName;
-            Recipient.this.isSystemContact       = result.systemContact;
 
             Recipient.this.participants.clear();
             Recipient.this.participants.addAll(result.participants);
@@ -237,11 +238,11 @@ public class Recipient implements RecipientModifiedListener {
     this.seenInviteReminder    = details.seenInviteReminder;
     this.defaultSubscriptionId = details.defaultSubscriptionId;
     this.registered            = details.registered;
+    this.notificationChannel   = details.notificationChannel;
     this.profileKey            = details.profileKey;
     this.profileName           = details.profileName;
     this.profileAvatar         = details.profileAvatar;
     this.profileSharing        = details.profileSharing;
-    this.isSystemContact       = details.systemContact;
     this.participants.addAll(details.participants);
     this.resolving    = false;
   }
@@ -291,7 +292,7 @@ public class Recipient implements RecipientModifiedListener {
   }
 
   public synchronized @NonNull MaterialColor getColor() {
-    if      (isGroupRecipient()) return MaterialColor.GROUP;
+    if      (isGroupRecipient()) return MaterialColor.BLUE;
     else if (color != null)      return color;
     else if (name != null)       return ContactColors.generateFor(name);
     else                         return ContactColors.UNKNOWN_COLOR;
@@ -586,6 +587,23 @@ public class Recipient implements RecipientModifiedListener {
     if (notify) notifyListeners();
   }
 
+  public synchronized @Nullable String getNotificationChannel() {
+    return !NotificationChannels.supported() ? null : notificationChannel;
+  }
+
+  public void setNotificationChannel(@Nullable String value) {
+    boolean notify = false;
+
+    synchronized (this) {
+      if (!Util.equals(this.notificationChannel, value)) {
+        this.notificationChannel = value;
+        notify = true;
+      }
+    }
+
+    if (notify) notifyListeners();
+  }
+
   public synchronized @Nullable byte[] getProfileKey() {
     return profileKey;
   }
@@ -599,7 +617,7 @@ public class Recipient implements RecipientModifiedListener {
   }
 
   public synchronized boolean isSystemContact() {
-    return isSystemContact;
+    return contactUri != null;
   }
 
   public synchronized Recipient resolve() {

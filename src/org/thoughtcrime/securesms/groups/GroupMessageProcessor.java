@@ -4,7 +4,7 @@ package org.thoughtcrime.securesms.groups;
 import android.content.Context;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.util.Log;
+import org.thoughtcrime.securesms.logging.Log;
 
 import com.google.protobuf.ByteString;
 
@@ -32,13 +32,15 @@ import org.whispersystems.signalservice.api.messages.SignalServiceEnvelope;
 import org.whispersystems.signalservice.api.messages.SignalServiceGroup;
 import org.whispersystems.signalservice.api.messages.SignalServiceGroup.Type;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 import static org.thoughtcrime.securesms.database.GroupDatabase.GroupRecord;
 import static org.whispersystems.signalservice.internal.push.SignalServiceProtos.AttachmentPointer;
@@ -234,7 +236,7 @@ public class GroupMessageProcessor {
         MmsDatabase               mmsDatabase     = DatabaseFactory.getMmsDatabase(context);
         Address                   addres          = Address.fromExternal(context, GroupUtil.getEncodedId(group.getGroupId(), false));
         Recipient                 recipient       = Recipient.from(context, addres, false);
-        OutgoingGroupMediaMessage outgoingMessage = new OutgoingGroupMediaMessage(recipient, storage, null, envelope.getTimestamp(), 0, null);
+        OutgoingGroupMediaMessage outgoingMessage = new OutgoingGroupMediaMessage(recipient, storage, null, envelope.getTimestamp(), 0, null, Collections.emptyList());
         long                      threadId        = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipient);
         long                      messageId       = mmsDatabase.insertMessageOutbox(outgoingMessage, threadId, false, null);
 
