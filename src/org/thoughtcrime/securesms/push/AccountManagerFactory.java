@@ -2,7 +2,7 @@ package org.thoughtcrime.securesms.push;
 
 import android.content.Context;
 import android.os.AsyncTask;
-import org.thoughtcrime.securesms.logging.Log;
+import android.util.Log;
 
 import com.google.android.gms.security.ProviderInstaller;
 
@@ -10,16 +10,22 @@ import org.thoughtcrime.securesms.BuildConfig;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.whispersystems.signalservice.api.SignalServiceAccountManager;
 
+import org.whispersystems.signalservice.api.util.RealtimeSleepTimer;
+import org.whispersystems.signalservice.api.util.SleepTimer;
+import org.whispersystems.signalservice.api.util.UptimeSleepTimer;
+
 public class AccountManagerFactory {
 
   private static final String TAG = AccountManagerFactory.class.getName();
 
   public static SignalServiceAccountManager createManager(Context context) {
+    SleepTimer sleepTimer = TextSecurePreferences.isGcmDisabled(context) ? new RealtimeSleepTimer(context) : new UptimeSleepTimer();
+
     return new SignalServiceAccountManager(new SignalServiceNetworkAccess(context).getConfiguration(context),
                                            TextSecurePreferences.getLocalNumber(context),
                                            TextSecurePreferences.getPushServerPassword(context),
-                                           TextSecurePreferences.getDeviceId(context),
-                                           BuildConfig.USER_AGENT);
+                                           BuildConfig.USER_AGENT,
+                                           sleepTimer);
   }
 
   public static SignalServiceAccountManager createManager(final Context context, String number, String password) {
@@ -37,8 +43,11 @@ public class AccountManagerFactory {
       }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
+
+    SleepTimer sleepTimer = TextSecurePreferences.isGcmDisabled(context) ? new RealtimeSleepTimer(context) : new UptimeSleepTimer();
+
     return new SignalServiceAccountManager(new SignalServiceNetworkAccess(context).getConfiguration(number),
-                                           number, password, BuildConfig.USER_AGENT);
+                                           number, password, BuildConfig.USER_AGENT,sleepTimer);
   }
 
 }

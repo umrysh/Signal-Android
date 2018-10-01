@@ -106,6 +106,10 @@ import org.whispersystems.signalservice.api.util.InvalidNumberException;
 import org.whispersystems.signalservice.internal.push.PushServiceSocket;
 import org.whispersystems.signalservice.internal.util.DynamicCredentialsProvider;
 
+import org.whispersystems.signalservice.api.util.RealtimeSleepTimer;
+import org.whispersystems.signalservice.api.util.SleepTimer;
+import org.whispersystems.signalservice.api.util.UptimeSleepTimer;
+
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -564,13 +568,16 @@ public class PushDecryptJob extends ContextJob {
   }
 
   private InputStream retrieveAttachmentAsStream(SignalServiceAttachmentPointer pointer, File tmpFile) throws IOException, InvalidMessageException {
+    SleepTimer sleepTimer = TextSecurePreferences.isGcmDisabled(context) ? new RealtimeSleepTimer(context) : new UptimeSleepTimer();
+
     final SignalServiceMessageReceiver messageReceiver = new SignalServiceMessageReceiver(new SignalServiceNetworkAccess(context).getConfiguration(context),
             new DynamicCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
                     TextSecurePreferences.getPushServerPassword(context),
                     TextSecurePreferences.getSignalingKey(context),
                     TextSecurePreferences.getDeviceId(context)),
             BuildConfig.USER_AGENT,
-            null);
+            null,
+            sleepTimer);
     return messageReceiver.retrieveAttachment(pointer, tmpFile, 150 * 1024 * 1024);
   }
 

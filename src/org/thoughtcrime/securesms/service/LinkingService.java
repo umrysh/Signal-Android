@@ -22,7 +22,8 @@ import org.thoughtcrime.securesms.push.SignalServiceNetworkAccess;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
-import org.whispersystems.jobqueue.JobManager;
+//import org.whispersystems.jobqueue.JobManager;
+import org.thoughtcrime.securesms.jobmanager.JobManager;
 import org.whispersystems.libsignal.IdentityKeyPair;
 import org.whispersystems.libsignal.state.PreKeyRecord;
 import org.whispersystems.libsignal.state.SignedPreKeyRecord;
@@ -42,6 +43,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import javax.inject.Inject;
+
+import org.whispersystems.signalservice.api.util.RealtimeSleepTimer;
+import org.whispersystems.signalservice.api.util.SleepTimer;
+import org.whispersystems.signalservice.api.util.UptimeSleepTimer;
 
 /**
  * Created by Benni on 08.07.2016.
@@ -75,7 +80,8 @@ public class LinkingService extends Service {
       /* create tsdevice link */
       String password = Util.getSecret(18);
       IdentityKeyPair temporaryIdentity = KeyHelper.generateIdentityKeyPair();
-      SignalServiceAccountManager accountManager = new SignalServiceAccountManager(new SignalServiceNetworkAccess(this).getConfiguration(this), null, password, BuildConfig.USER_AGENT);
+      SleepTimer sleepTimer = TextSecurePreferences.isGcmDisabled(this) ? new RealtimeSleepTimer(this) : new UptimeSleepTimer();
+      SignalServiceAccountManager accountManager = new SignalServiceAccountManager(new SignalServiceNetworkAccess(this).getConfiguration(this), null, password, BuildConfig.USER_AGENT,sleepTimer);
 
       String uuid = accountManager.getNewDeviceUuid(); /* timeouts sometimes */
       URI tsdevicelink = new URI("tsdevice:/?uuid=" + URLEncoder.encode(uuid, "utf-8") + "&pub_key=" + URLEncoder.encode(Base64.encodeBytesWithoutPadding(temporaryIdentity.getPublicKey().serialize()), "utf-8"));

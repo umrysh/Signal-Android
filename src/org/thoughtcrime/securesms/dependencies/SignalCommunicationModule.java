@@ -45,6 +45,9 @@ import org.whispersystems.signalservice.api.SignalServiceAccountManager;
 import org.whispersystems.signalservice.api.SignalServiceMessageReceiver;
 import org.whispersystems.signalservice.api.SignalServiceMessageSender;
 import org.whispersystems.signalservice.api.util.CredentialsProvider;
+import org.whispersystems.signalservice.api.util.RealtimeSleepTimer;
+import org.whispersystems.signalservice.api.util.SleepTimer;
+import org.whispersystems.signalservice.api.util.UptimeSleepTimer;
 import org.whispersystems.signalservice.api.websocket.ConnectivityListener;
 import org.whispersystems.signalservice.internal.util.DynamicCredentialsProvider;
 
@@ -101,12 +104,15 @@ public class SignalCommunicationModule {
   @Provides
   synchronized SignalServiceAccountManager provideSignalAccountManager() {
     if (this.accountManager == null) {
+      SleepTimer sleepTimer = TextSecurePreferences.isGcmDisabled(context) ? new RealtimeSleepTimer(context) : new UptimeSleepTimer();
+
       this.accountManager = new SignalServiceAccountManager(networkAccess.getConfiguration(context),
                                                             new DynamicCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
                                                                     TextSecurePreferences.getPushServerPassword(context),
                                                                     TextSecurePreferences.getSignalingKey(context),
                                                                     TextSecurePreferences.getDeviceId(context)),
-                                                            BuildConfig.USER_AGENT);
+                                                            BuildConfig.USER_AGENT,
+                                                            sleepTimer);
     }
 
     return this.accountManager;
@@ -134,13 +140,15 @@ public class SignalCommunicationModule {
   @Provides
   synchronized SignalServiceMessageReceiver provideSignalMessageReceiver() {
     if (this.messageReceiver == null) {
+      SleepTimer sleepTimer = TextSecurePreferences.isGcmDisabled(context) ? new RealtimeSleepTimer(context) : new UptimeSleepTimer();
       this.messageReceiver = new SignalServiceMessageReceiver(networkAccess.getConfiguration(context),
                                                               new DynamicCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
                                                                       TextSecurePreferences.getPushServerPassword(context),
                                                                       TextSecurePreferences.getSignalingKey(context),
                                                                       TextSecurePreferences.getDeviceId(context)),
                                                               BuildConfig.USER_AGENT,
-                                                              new PipeConnectivityListener());
+                                                              new PipeConnectivityListener(),
+                                                              sleepTimer);
     }
 
     return this.messageReceiver;
